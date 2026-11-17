@@ -116,6 +116,24 @@ export class ConversationsService {
     return { success: true };
   }
 
+  async getRecentMessages(
+    tenant: TenantContext,
+    conversationId: string,
+    limit: number = 6,
+  ): Promise<{ role: string; content: string }[]> {
+    const records = await this.prisma.client.chatMessageRecord.findMany({
+      where: {
+        conversationId,
+        conversation: { organizationId: tenant.organizationId },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      select: { role: true, content: true },
+    });
+
+    return records.reverse();
+  }
+
   async saveTurn(
     tenant: TenantContext,
     conversationId: string | undefined,
