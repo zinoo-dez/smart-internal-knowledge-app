@@ -11,6 +11,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import {
   DocumentSummary,
   IngestDocumentResponse,
@@ -29,6 +30,7 @@ import { CreateDocumentDto } from './dto/create-document.dto';
 export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
 
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('upload/file')
   @UseInterceptors(FileInterceptor('file'))
   async uploadFile(

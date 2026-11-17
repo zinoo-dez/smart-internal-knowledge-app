@@ -22,9 +22,9 @@ export class ClerkAuthGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const authHeader = request.headers['authorization'];
 
-    // 1. Check for development / testing mock header
+    // 1. Check for development / testing mock header (strictly rejected in production)
     const mockUserHeader = request.headers['x-mock-user-id'];
-    if (mockUserHeader && (process.env.NODE_ENV !== 'production' || !this.secretKey || this.secretKey.startsWith('sk_test_...'))) {
+    if (process.env.NODE_ENV !== 'production' && mockUserHeader) {
       const mockOrg = (request.headers['x-mock-org-id'] as string) || 'mock-org-default';
       const mockRole = (request.headers['x-mock-role'] as UserRole) || UserRole.ADMIN;
       const mockEmail = (request.headers['x-mock-email'] as string) || 'test-engineer@company.internal';

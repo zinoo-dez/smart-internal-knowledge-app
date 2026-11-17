@@ -14,7 +14,7 @@ USING gin (tsv);
 
 -- Multi-tenant B-Tree composite indexes for fast tenant-scoped retrieval
 CREATE INDEX IF NOT EXISTS idx_chunks_org_doc 
-ON document_chunks (organization_id, document_id);
+ON document_chunks ("organizationId", "documentId");
 
 CREATE INDEX IF NOT EXISTS idx_query_logs_org_created 
-ON query_logs (organization_id, created_at DESC);
+ON query_logs ("organizationId", "createdAt" DESC);

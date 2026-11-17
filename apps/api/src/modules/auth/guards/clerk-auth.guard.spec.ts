@@ -54,4 +54,21 @@ describe('ClerkAuthGuard', () => {
     expect(req.tenantContext).toBeDefined();
     expect(req.tenantContext.organizationId).toBe('org-uuid-1');
   });
+
+  it('should REJECT mock user headers in production environment (Security Guardrail)', async () => {
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+
+    try {
+      const context = createMockContext({
+        'x-mock-user-id': 'hacker-impersonator',
+        'x-mock-org-id': 'target-org',
+        'x-mock-role': UserRole.ADMIN,
+      });
+
+      await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+    } finally {
+      process.env.NODE_ENV = originalEnv;
+    }
+  });
 });

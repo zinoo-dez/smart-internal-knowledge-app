@@ -9,6 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Response } from 'express';
+import { Throttle } from '@nestjs/throttler';
 import {
   ConversationDetail,
   ConversationSummary,
@@ -55,6 +56,7 @@ export class ChatController {
     return this.conversationsService.deleteConversation(tenant, id);
   }
 
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post('stream')
   async streamChat(
     @CurrentTenant() tenant: TenantContext,
