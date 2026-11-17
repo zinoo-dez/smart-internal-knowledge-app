@@ -13,9 +13,20 @@ import {
   ExternalLink,
   Sparkles,
   Cpu,
+  MessageSquare,
+  Plus,
+  Trash2,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
-import { DocumentCitation, FeedbackType } from '@knowledge/shared';
-import { createSupportTicket, submitFeedback } from '@/lib/api-client';
+import { ConversationSummary, DocumentCitation, FeedbackType } from '@knowledge/shared';
+import {
+  createSupportTicket,
+  deleteConversation,
+  fetchConversationDetail,
+  fetchConversations,
+  submitFeedback,
+} from '@/lib/api-client';
 
 interface ModelOption {
   id: string;
@@ -75,12 +86,76 @@ export default function ChatPage() {
   const [ticketDescription, setTicketDescription] = useState('');
   const [ticketSubmittedMsg, setTicketSubmittedMsg] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<ModelOption>(AVAILABLE_MODELS[0]);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const loadThreads = async () => {
+    try {
+      const list = await fetchConversations();
+      setConversations(list);
+    } catch (err) {
+      console.warn('Failed to load conversation history:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadThreads();
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isStreaming]);
+
+  const handleSelectThread = async (threadId: string) => {
+    if (isStreaming || threadId === activeConversationId) return;
+    try {
+      const detail = await fetchConversationDetail(threadId);
+      setActiveConversationId(detail.id);
+      if (detail.messages && detail.messages.length > 0) {
+        setMessages(
+          detail.messages.map((m) => ({
+            id: m.id,
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+            citations: m.citations,
+            queryLogId: m.queryLogId,
+          })),
+        );
+      }
+    } catch (err) {
+      console.error('Failed to load thread detail:', err);
+    }
+  };
+
+  const handleNewChat = () => {
+    if (isStreaming) return;
+    setActiveConversationId(null);
+    setMessages([
+      {
+        id: 'welcome-msg',
+        role: 'assistant',
+        content:
+          'Hello! I am your Smart Internal Knowledge Assistant. Ask me any question regarding company policies, engineering documentation, onboarding, or internal tools.\n\nEvery answer includes verifiable citations directly linked to company documentation.',
+      },
+    ]);
+  };
+
+  const handleDeleteThread = async (threadId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this conversation thread?')) return;
+    try {
+      await deleteConversation(threadId);
+      setConversations((prev) => prev.filter((t) => t.id !== threadId));
+      if (activeConversationId === threadId) {
+        handleNewChat();
+      }
+    } catch (err) {
+      console.error('Failed to delete thread:', err);
+    }
+  };
 
   const handleSend = async (questionText?: string) => {
     const query = (questionText || input).trim();
@@ -112,6 +187,7 @@ export default function ChatPage() {
           messages: [{ role: 'user', content: query }],
           modelProvider: selectedModel.provider,
           modelName: selectedModel.modelName,
+          conversationId: activeConversationId || undefined,
         }),
       });
 
@@ -154,11 +230,15 @@ export default function ChatPage() {
                 );
               } else if (data.type === 'done') {
                 logId = data.queryLogId;
+                if (data.conversationId && !activeConversationId) {
+                  setActiveConversationId(data.conversationId);
+                }
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === assistantMsgId ? { ...m, queryLogId: logId } : m,
                   ),
                 );
+                loadThreads();
               }
             } catch {
               // Ignore partial JSON chunks
@@ -241,40 +321,120 @@ export default function ChatPage() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-6rem)] relative">
-      {/* Top Controls: Model Selector & Suggestions */}
-      <div className="pb-3 border-b border-slate-200 shrink-0 space-y-2.5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-              <Cpu className="w-3.5 h-3.5 text-blue-600" />
-              <span>Model:</span>
-            </span>
-            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
-              {AVAILABLE_MODELS.map((model) => {
-                const isSelected = selectedModel.id === model.id;
-                return (
-                  <button
-                    key={model.id}
-                    type="button"
-                    onClick={() => setSelectedModel(model)}
-                    disabled={isStreaming}
-                    className={`text-xs px-2.5 py-1 rounded-md font-medium transition-all ${
-                      isSelected
-                        ? 'bg-white text-slate-900 shadow-sm border border-slate-200/80 font-semibold'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60'
-                    }`}
-                  >
-                    {model.name}
-                  </button>
-                );
-              })}
+    <div className="flex h-[calc(100vh-6rem)] gap-4 relative">
+      {/* Left: Thread History Sidebar */}
+      <aside
+        className={`shrink-0 transition-all duration-200 flex flex-col bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden ${
+          isSidebarOpen ? 'w-64' : 'w-0 border-none'
+        }`}
+      >
+        {isSidebarOpen && (
+          <div className="flex flex-col h-full p-3 space-y-3">
+            {/* New Chat Button */}
+            <button
+              onClick={handleNewChat}
+              disabled={isStreaming}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-colors min-h-[40px]"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Conversation</span>
+            </button>
+
+            {/* Threads Header */}
+            <div className="flex items-center justify-between px-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+              <span>Past Conversations</span>
+              <span className="font-mono text-slate-500">{conversations.length}</span>
             </div>
-            <span className="hidden sm:inline-block text-[11px] text-slate-500 font-mono bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-              {selectedModel.badge}
-            </span>
+
+            {/* Threads List */}
+            <div className="flex-1 overflow-y-auto space-y-1">
+              {conversations.length === 0 ? (
+                <div className="text-center py-8 text-xs text-slate-400">
+                  No past conversations
+                </div>
+              ) : (
+                conversations.map((thread) => {
+                  const isActive = activeConversationId === thread.id;
+                  return (
+                    <div
+                      key={thread.id}
+                      onClick={() => handleSelectThread(thread.id)}
+                      className={`group flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer transition-colors ${
+                        isActive
+                          ? 'bg-blue-50 text-blue-900 font-semibold border border-blue-200/60'
+                          : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate min-w-0">
+                        <MessageSquare
+                          className={`w-3.5 h-3.5 shrink-0 ${
+                            isActive ? 'text-blue-600' : 'text-slate-400'
+                          }`}
+                        />
+                        <span className="truncate">{thread.title}</span>
+                      </div>
+                      <button
+                        onClick={(e) => handleDeleteThread(thread.id, e)}
+                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-600 transition-opacity shrink-0"
+                        title="Delete conversation"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
-        </div>
+        )}
+      </aside>
+
+      {/* Main Chat Screen */}
+      <div className="flex-1 flex flex-col min-w-0 bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm relative overflow-hidden">
+        {/* Top Controls: Sidebar Toggle + Model Selector & Suggestions */}
+        <div className="pb-3 border-b border-slate-200 shrink-0 space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500 transition-colors"
+                title={isSidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
+              >
+                {isSidebarOpen ? (
+                  <PanelLeftClose className="w-4 h-4" />
+                ) : (
+                  <PanelLeftOpen className="w-4 h-4" />
+                )}
+              </button>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                <Cpu className="w-3.5 h-3.5 text-blue-600" />
+                <span>Model:</span>
+              </span>
+              <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                {AVAILABLE_MODELS.map((model) => {
+                  const isSelected = selectedModel.id === model.id;
+                  return (
+                    <button
+                      key={model.id}
+                      type="button"
+                      onClick={() => setSelectedModel(model)}
+                      disabled={isStreaming}
+                      className={`text-xs px-2.5 py-1 rounded-md font-medium transition-all ${
+                        isSelected
+                          ? 'bg-white text-slate-900 shadow-sm border border-slate-200/80 font-semibold'
+                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60'
+                      }`}
+                    >
+                      {model.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="hidden sm:inline-block text-[11px] text-slate-500 font-mono bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                {selectedModel.badge}
+              </span>
+            </div>
+          </div>
 
         {/* Suggestions Bar */}
         <div className="flex items-center gap-2 overflow-x-auto">
@@ -424,6 +584,7 @@ export default function ChatPage() {
           </button>
         </div>
       </form>
+      </div>
 
       {/* Right-Side Slide-out Citation Inspection Drawer */}
       {selectedCitation && (

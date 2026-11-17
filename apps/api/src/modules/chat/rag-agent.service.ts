@@ -11,6 +11,7 @@ import {
 } from '@knowledge/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AgentToolsService } from './tools/agent-tools.service';
+import { ConversationsService } from './conversations.service';
 import { ChatCompletionDto } from './dto/chat-completion.dto';
 
 @Injectable()
@@ -20,6 +21,7 @@ export class RagAgentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly agentToolsService: AgentToolsService,
+    private readonly conversationsService?: ConversationsService,
   ) {}
 
   private resolveChatModel(
@@ -188,8 +190,32 @@ ${contextBlocks}`;
       },
     });
 
-    // 4. Emit done event with queryLogId
-    res.write(`data: ${JSON.stringify({ type: 'done', queryLogId: queryLog.id, latencyMs })}\n\n`);
+    // 4. Persist conversation turn
+    let persistentConvId = dto.conversationId;
+    if (this.conversationsService) {
+      try {
+        persistentConvId = await this.conversationsService.saveTurn(
+          tenant,
+          dto.conversationId,
+          lastUserMessage,
+          fullResponseText,
+          citations,
+          queryLog.id,
+        );
+      } catch (err) {
+        this.logger.warn(`Failed to persist conversation turn: ${(err as Error).message}`);
+      }
+    }
+
+    // 5. Emit done event with queryLogId and conversationId
+    res.write(
+      `data: ${JSON.stringify({
+        type: 'done',
+        queryLogId: queryLog.id,
+        conversationId: persistentConvId,
+        latencyMs,
+      })}\n\n`,
+    );
     res.end();
   }
 

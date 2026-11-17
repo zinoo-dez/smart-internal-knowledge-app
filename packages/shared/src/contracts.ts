@@ -136,3 +136,27 @@ export interface ConnectorStatusResponse {
     syncedMessagesCount: number;
   };
 }
+
+// Conversation Thread Contracts
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  userId: string;
+  organizationId: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount?: number;
+}
+
+export interface ConversationMessageItem {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  citations?: DocumentCitation[];
+  queryLogId?: string;
+  createdAt: string;
+}
+
+export interface ConversationDetail extends ConversationSummary {
+  messages: ConversationMessageItem[];
+}

@@ -68,6 +68,7 @@ model Organization {
   users          User[]
   documents      Document[]
   documentChunks DocumentChunk[]
+  conversations  Conversation[]
   queryLogs      QueryLog[]
   feedbacks      Feedback[]
   supportTickets SupportTicket[]
@@ -88,6 +89,7 @@ model User {
   updatedAt      DateTime     @updatedAt
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversations  Conversation[]
   queryLogs      QueryLog[]
   feedbacks      Feedback[]
   supportTickets SupportTicket[]
@@ -213,4 +215,36 @@ model AuditLog {
 
   @@index([organizationId, createdAt])
   @@map("audit_logs")
+}
+
+model Conversation {
+  id             String              @id @default(uuid())
+  organizationId String
+  userId         String
+  title          String              @default("New Conversation")
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages       ChatMessageRecord[]
+
+  @@index([organizationId, userId])
+  @@index([updatedAt])
+  @@map("conversations")
+}
+
+model ChatMessageRecord {
+  id             String       @id @default(uuid())
+  conversationId String
+  role           String       // 'user' | 'assistant'
+  content        String
+  citations      Json?        // DocumentCitation[]
+  queryLogId     String?
+  createdAt      DateTime     @default(now())
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("chat_messages")
 }

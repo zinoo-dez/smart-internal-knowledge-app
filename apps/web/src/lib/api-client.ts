@@ -1,6 +1,8 @@
 import {
   AnalyticsSummaryResponse,
   ConnectorStatusResponse,
+  ConversationDetail,
+  ConversationSummary,
   CreateTicketParams,
   Department,
   DocumentSource,
@@ -210,6 +212,57 @@ export async function sendSlackWebhook(
     method: 'POST',
     headers: DEFAULT_HEADERS,
     body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+
+export async function fetchConversations(): Promise<ConversationSummary[]> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/chat/conversations`, {
+      headers: DEFAULT_HEADERS,
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.warn('Backend conversations unavailable, using fallback list:', err);
+    return [
+      {
+        id: 'seed-thread-1',
+        title: 'Company VPN & WireGuard Handbook',
+        userId: 'dev-admin-01',
+        organizationId: 'mock-org-default',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        messageCount: 2,
+      },
+      {
+        id: 'seed-thread-2',
+        title: 'AWS Credentials & Microservices',
+        userId: 'dev-admin-01',
+        organizationId: 'mock-org-default',
+        createdAt: new Date(Date.now() - 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 86400000).toISOString(),
+        messageCount: 4,
+      },
+    ];
+  }
+}
+
+export async function fetchConversationDetail(id: string): Promise<ConversationDetail> {
+  const res = await fetch(`${API_BASE_URL}/api/chat/conversations/${id}`, {
+    headers: DEFAULT_HEADERS,
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+
+export async function deleteConversation(id: string): Promise<{ success: boolean }> {
+  const res = await fetch(`${API_BASE_URL}/api/chat/conversations/${id}`, {
+    method: 'DELETE',
+    headers: DEFAULT_HEADERS,
   });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
   return await res.json();
