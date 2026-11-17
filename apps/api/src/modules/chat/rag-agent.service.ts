@@ -49,6 +49,20 @@ Your sole mission is to assist employees by answering questions strictly and acc
 
 4. CONCISENESS & TONE:
    - Maintain a professional, crisp, and direct tone. Use markdown bullet points and bold highlights for readability.
+
+5. MULTILINGUAL REASONING & LANGUAGE MIRRORING:
+   - DIRECT LANGUAGE MIRRORING:
+     * When the user inquiry is in Myanmar (Burmese) or explicitly asks for an explanation in Myanmar (e.g. "မြန်မာလို", "in Burmese", "explain in Myanmar", "ဗမာလို"):
+       Formulate your entire response in clear, natural, and professional Myanmar Unicode (ဗမာဘာသာ).
+     * When the user inquiry is in English without specifying another language, formulate the response in English.
+     * When the user explicitly requests bilingual output (e.g. "in English and Myanmar"), provide both languages clearly formatted.
+   - CROSS-LINGUAL CITATION & TECHNICAL ACCURACY:
+     * Even if source documentation in <knowledge_base_context> is written in English, cross-lingually synthesize and explain the retrieved facts into fluent Myanmar Unicode.
+     * Always preserve standard technical terms and software names (e.g. WireGuard, Docker, GitHub, AWS, Prisma, Next.js, API, VPN, SSO, 1Password) in English or transliterated alongside clear Burmese explanations.
+     * Attach the exact corresponding citations [1], [2], etc., matching the retrieved sources regardless of the language answered.
+   - SAFE REFUSAL IN MYANMAR:
+     * If the inquiry is in Myanmar or requests Myanmar explanation, but the knowledge base does not contain the answer, formulate the safe refusal in Myanmar:
+       "ကုမ္ပဏီမှတ်တမ်းများတွင် ဤအကြောင်းအရာနှင့်ပတ်သက်သော အချက်အလက်များ မတွေ့ရှိပါ။\n\nသက်ဆိုင်ရာဌာနသို့ အကူအညီတောင်းခံလွှာ (Support Ticket) ဖွင့်ပေးရမလားခင်ဗျာ။"
 </strict_operating_rules>
 
 <few_shot_examples>
@@ -68,6 +82,16 @@ Production deployments follow an automated continuous delivery model:
 I could not find information about this in company documentation.
 
 Would you like me to open an internal support ticket with HR & Workplace Operations to clarify this policy?
+</assistant_response>
+</example>
+
+<example id="3" scenario="Myanmar Language Inquiry Grounded in English Documentation">
+<user_query>ကုမ္ပဏီ VPN ကို ဘယ်လို ချိတ်ဆက်ရမလဲ?</user_query>
+<assistant_response>
+ကုမ္ပဏီ VPN ချိတ်ဆက်ရန် အောက်ပါ အဆင့်များကို လိုက်နာဆောင်ရွက်ပါ:
+- 1Password ၏ Secure Vault မှတစ်ဆင့် သင်၏ WireGuard configuration ဖိုင်နှင့် private key ကို ရယူပါ [1]။
+- သင့်စက်တွင် WireGuard client ကို ဒေါင်းလုဒ်လုပ်ပြီး configuration ဖိုင်ကို import ပြုလုပ်ပါ [1]။
+- ကုမ္ပဏီ VPN gateway port 51820 သို့ ချိတ်ဆက်ပြီး ကုမ္ပဏီ internal tools များကို လုံခြုံစွာ အသုံးပြုနိုင်ပါသည် [1]။
 </assistant_response>
 </example>
 </few_shot_examples>`;
@@ -171,6 +195,17 @@ ${contextBlocks}
   }
 
   /**
+   * Detects whether user inquiry is written in Myanmar Unicode
+   * or explicitly requests a Myanmar/Burmese explanation.
+   */
+  public isMyanmarQuery(text: string): boolean {
+    if (!text) return false;
+    const myanmarUnicodeRange = /[\u1000-\u109F\uAA60-\uAA7F\uA9E0-\uA9FF]/;
+    const explicitMyanmarRequest = /\b(burmese|myanmar|ဗမာလို|မြန်မာလို|ရှင်းပြပေး|မြန်မာဘာသာ)\b/i;
+    return myanmarUnicodeRange.test(text) || explicitMyanmarRequest.test(text);
+  }
+
+  /**
    * Condenses multi-turn conversational history and follow-up inquiry
    * into a clear standalone search query for PostgreSQL hybrid retrieval.
    */
@@ -205,6 +240,7 @@ Rules:
 - Output ONLY the standalone search query.
 - Do NOT answer the question.
 - Do NOT include quotes, explanations, or prefixes.
+- If the inquiry is in Myanmar (Burmese), preserve the Myanmar keywords while extracting any relevant English technical concepts (e.g. VPN, AWS, HR, Leave, Password) so hybrid retrieval can locate matching documentation.
 
 <conversation_history>
 ${historyContext}
@@ -296,11 +332,19 @@ Standalone Search Query:`;
         answerText = this.generateSynthesizedAnswer(sanitizedUserMessage, citations);
       }
     } else {
+      const isMy = this.isMyanmarQuery(sanitizedUserMessage);
       const teamContact = await this.agentToolsService.lookupTeamContact(sanitizedUserMessage);
-      answerText =
-        `I could not find direct information about "${userQuery}" in your company's indexed documents.\n\n` +
-        `For questions regarding this topic, you can contact **${teamContact.name}** (${teamContact.role}) at \`${teamContact.email}\` or Slack \`${teamContact.slackHandle}\`.\n\n` +
-        `Would you like me to open an internal support ticket for this inquiry?`;
+      if (isMy) {
+        answerText =
+          `ကုမ္ပဏီမှတ်တမ်းများတွင် "${userQuery}" နှင့်ပတ်သက်သော အချက်အလက်များ မတွေ့ရှိပါ။\n\n` +
+          `ဤကိစ္စနှင့်ပတ်သက်၍ မေးမြန်းစုံစမ်းလိုပါက **${teamContact.name}** (${teamContact.role}) ထံသို့ အီးမေးလ် \`${teamContact.email}\` သို့မဟုတ် Slack \`${teamContact.slackHandle}\` ဖြင့် ဆက်သွယ်နိုင်ပါသည်။\n\n` +
+          `ဤမေးမြန်းမှုအတွက် သက်ဆိုင်ရာဌာနသို့ အကူအညီတောင်းခံလွှာ (Support Ticket) ဖွင့်ပေးရမလားခင်ဗျာ။`;
+      } else {
+        answerText =
+          `I could not find direct information about "${userQuery}" in your company's indexed documents.\n\n` +
+          `For questions regarding this topic, you can contact **${teamContact.name}** (${teamContact.role}) at \`${teamContact.email}\` or Slack \`${teamContact.slackHandle}\`.\n\n` +
+          `Would you like me to open an internal support ticket for this inquiry?`;
+      }
     }
 
     if (
@@ -460,10 +504,17 @@ Standalone Search Query:`;
       }
     } else {
       // No citations found: Low confidence fallback with automatic tool assistance
+      const isMy = this.isMyanmarQuery(sanitizedUserMessage);
       const teamContact = await this.agentToolsService.lookupTeamContact(sanitizedUserMessage);
-      fullResponseText = `I could not find direct information about "${lastUserMessage}" in your company's indexed documents.\n\n` +
-        `For questions regarding this topic, you can contact **${teamContact.name}** (${teamContact.role}) at \`${teamContact.email}\` or Slack \`${teamContact.slackHandle}\`.\n\n` +
-        `Would you like me to open an internal support ticket for this inquiry?`;
+      if (isMy) {
+        fullResponseText = `ကုမ္ပဏီမှတ်တမ်းများတွင် "${lastUserMessage}" နှင့်ပတ်သက်သော အချက်အလက်များ မတွေ့ရှိပါ။\n\n` +
+          `ဤကိစ္စနှင့်ပတ်သက်၍ မေးမြန်းစုံစမ်းလိုပါက **${teamContact.name}** (${teamContact.role}) ထံသို့ အီးမေးလ် \`${teamContact.email}\` သို့မဟုတ် Slack \`${teamContact.slackHandle}\` ဖြင့် ဆက်သွယ်နိုင်ပါသည်။\n\n` +
+          `ဤမေးမြန်းမှုအတွက် သက်ဆိုင်ရာဌာနသို့ အကူအညီတောင်းခံလွှာ (Support Ticket) ဖွင့်ပေးရမလားခင်ဗျာ။`;
+      } else {
+        fullResponseText = `I could not find direct information about "${lastUserMessage}" in your company's indexed documents.\n\n` +
+          `For questions regarding this topic, you can contact **${teamContact.name}** (${teamContact.role}) at \`${teamContact.email}\` or Slack \`${teamContact.slackHandle}\`.\n\n` +
+          `Would you like me to open an internal support ticket for this inquiry?`;
+      }
 
       await this.streamSyntheticResponse(fullResponseText, res);
     }
@@ -584,6 +635,11 @@ Standalone Search Query:`;
 
   private generateSynthesizedAnswer(query: string, citations: DocumentCitation[]): string {
     const primary = citations[0];
+    const isMy = this.isMyanmarQuery(query);
+    if (isMy) {
+      return `**${primary.documentTitle}** [1] မှ ဖော်ပြချက်အရ: ${primary.snippet.slice(0, 250)}...\n\n` +
+        `အသေးစိတ်အချက်အလက်များအတွက် သက်ဆိုင်ရာ ကုမ္ပဏီမှတ်တမ်းများကို ကြည့်ရှုနိုင်ပါသည်။`;
+    }
     return `Based on **${primary.documentTitle}** [1], ${primary.snippet.slice(0, 250)}...\n\n` +
       `For additional details, please refer to the referenced company documentation.`;
   }

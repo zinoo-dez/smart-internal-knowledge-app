@@ -277,5 +277,77 @@ describe('RagAgentService', () => {
       );
       expect(res.end).toHaveBeenCalled();
     });
+
+    it('should detect Myanmar queries and language requests', () => {
+      expect(service.isMyanmarQuery('ကုမ္ပဏီ VPN ဘယ်လို ချိတ်ဆက်ရမလဲ?')).toBe(true);
+      expect(service.isMyanmarQuery('Explain VPN policy in Burmese please')).toBe(true);
+      expect(service.isMyanmarQuery('How many annual leave days do we get? မြန်မာလို ရှင်းပြပေးပါ')).toBe(true);
+      expect(service.isMyanmarQuery('What is the AWS deployment procedure?')).toBe(false);
+    });
+
+    it('should stream safe refusal in Myanmar when no citations are found for Myanmar query', async () => {
+      mockTools.searchKnowledgeBase.mockResolvedValue([]);
+      mockTools.lookupTeamContact.mockResolvedValue({
+        name: 'Sarah Jenkins',
+        role: 'Head of People & HR Operations',
+        department: 'Human Resources',
+        email: 'hr-support@company.internal',
+        slackHandle: '@sarah-hr',
+      });
+
+      const { written, res } = createMockResponse();
+
+      await service.streamChat(
+        tenant,
+        {
+          messages: [{ role: 'user', content: 'မင်္ဂလာပါ ရုံးတွင်း ခွင့်ရက်အကြောင်း သိလိုပါသည်' }],
+        },
+        res,
+      );
+
+      const combinedOutput = written.join('');
+      expect(combinedOutput).toContain('ကုမ္ပဏီမှတ်တမ်းများတွင်');
+      expect(combinedOutput).toContain('အကူအညီတောင်းခံလွှာ');
+      expect(combinedOutput).toContain('Support');
+      expect(res.end).toHaveBeenCalled();
+    });
+
+    it('should stream synthesized response in Myanmar when citations exist for Myanmar query', async () => {
+      mockTools.searchKnowledgeBase.mockResolvedValue([
+        {
+          chunkId: 'c-my-leave',
+          documentId: 'd-my-leave',
+          documentTitle: 'Myanmar Office Employee Leave Policy',
+          source: DocumentSource.FILE_UPLOAD,
+          snippet: 'မြန်မာနိုင်ငံ ရုံးခွဲတွင် တစ်နှစ်လျှင် နှစ်စဉ်လုပ်သက်ခွင့် ၂၀ ရက် ရရှိပါမည်။',
+          relevanceScore: 0.95,
+        },
+      ]);
+
+      const { written, res } = createMockResponse();
+
+      await service.streamChat(
+        tenant,
+        {
+          messages: [{ role: 'user', content: 'မြန်မာရုံးခွဲ ဝန်ထမ်းတွေ ခွင့်ရက် ဘယ်နှစ်ရက် ရသလဲ?' }],
+        },
+        res,
+      );
+
+      const combinedOutput = written.join('');
+      expect(combinedOutput).toContain('Myanmar Office Employee Leave Policy');
+      expect(combinedOutput).toContain('ဖော်ပြချက်အရ:');
+      expect(combinedOutput).toContain('အသေးစိတ်အချက်အလက်များအတွက်');
+      expect(res.end).toHaveBeenCalled();
+    });
+
+    it('should include Rule 5 Multilingual Reasoning in buildSystemPrompt', () => {
+      const systemPrompt = service.buildSystemPrompt('Sample context');
+      expect(systemPrompt).toContain('5. MULTILINGUAL REASONING & LANGUAGE MIRRORING:');
+      expect(systemPrompt).toContain('DIRECT LANGUAGE MIRRORING:');
+      expect(systemPrompt).toContain('SAFE REFUSAL IN MYANMAR:');
+      expect(systemPrompt).toContain('ကုမ္ပဏီမှတ်တမ်းများတွင် ဤအကြောင်းအရာနှင့်ပတ်သက်သော အချက်အလက်များ မတွေ့ရှိပါ။');
+      expect(systemPrompt).toContain('<example id="3" scenario="Myanmar Language Inquiry Grounded in English Documentation">');
+    });
   });
 });

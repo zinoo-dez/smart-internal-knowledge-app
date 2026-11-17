@@ -77,11 +77,11 @@ export class HybridSearchService {
              d.source::text AS source,
              d."sourceUrl" AS source_url,
              c.content AS snippet,
-             ROW_NUMBER() OVER (ORDER BY ts_rank_cd(c.tsv, plainto_tsquery('english', $4)) DESC) AS keyword_rank
+             ROW_NUMBER() OVER (ORDER BY GREATEST(ts_rank_cd(c.tsv, plainto_tsquery('english', $4)), ts_rank_cd(c.tsv, plainto_tsquery('simple', $4))) DESC) AS keyword_rank
            FROM document_chunks c
            JOIN documents d ON d.id = c."documentId"
            WHERE c."organizationId" = $2
-             AND (c.tsv @@ plainto_tsquery('english', $4) OR c.content ILIKE '%' || $4 || '%')
+             AND (c.tsv @@ plainto_tsquery('english', $4) OR c.tsv @@ plainto_tsquery('simple', $4) OR c.content ILIKE '%' || $4 || '%')
              AND (c.department = 'ALL' OR c.department::text = $6 OR $7 = true)
            LIMIT $3
          )

@@ -29,13 +29,19 @@ export class RecursiveTextChunker {
         break;
       }
 
-      // Try finding nearest newline or space boundary before the cut
+      // Try finding nearest newline, Myanmar sentence/clause boundary (။ or ၊), or space before the cut
       const lookbackWindow = cleaned.slice(Math.max(start, end - 100), end);
       const lastNewline = lookbackWindow.lastIndexOf('\n');
+      const lastMyanmarSection = lookbackWindow.lastIndexOf('။');
+      const lastMyanmarClause = lookbackWindow.lastIndexOf('၊');
       const lastSpace = lookbackWindow.lastIndexOf(' ');
 
       if (lastNewline !== -1) {
         end = Math.max(start, end - 100) + lastNewline + 1;
+      } else if (lastMyanmarSection !== -1) {
+        end = Math.max(start, end - 100) + lastMyanmarSection + 1;
+      } else if (lastMyanmarClause !== -1) {
+        end = Math.max(start, end - 100) + lastMyanmarClause + 1;
       } else if (lastSpace !== -1) {
         end = Math.max(start, end - 100) + lastSpace + 1;
       }

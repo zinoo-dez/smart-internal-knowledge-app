@@ -27,6 +27,8 @@ import {
   fetchConversations,
   submitFeedback,
 } from '@/lib/api-client';
+import { useLanguage } from '@/context/language-context';
+import { LanguageSwitcher } from '@/components/ui/language-switcher';
 
 interface ModelOption {
   id: string;
@@ -70,6 +72,7 @@ interface ChatMessage {
 }
 
 export default function ChatPage() {
+  const { t, language, isMyanmar } = useLanguage();
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'welcome-msg',
@@ -91,6 +94,16 @@ export default function ChatPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Sync welcome message on initial language toggle if conversation has not started
+  useEffect(() => {
+    setMessages((prev) => {
+      if (prev.length === 1 && prev[0].id === 'welcome-msg') {
+        return [{ id: 'welcome-msg', role: 'assistant', content: t.chatWelcomeDesc }];
+      }
+      return prev;
+    });
+  }, [language, t.chatWelcomeDesc]);
 
   const loadThreads = async () => {
     try {
@@ -137,8 +150,7 @@ export default function ChatPage() {
       {
         id: 'welcome-msg',
         role: 'assistant',
-        content:
-          'Hello! I am your Smart Internal Knowledge Assistant. Ask me any question regarding company policies, engineering documentation, onboarding, or internal tools.\n\nEvery answer includes verifiable citations directly linked to company documentation.',
+        content: t.chatWelcomeDesc,
       },
     ]);
   };
@@ -178,10 +190,10 @@ export default function ChatPage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-mock-user-id': 'dev-employee-01',
+          'x-mock-user-id': 'dev-admin-01',
           'x-mock-org-id': 'mock-org-default',
-          'x-mock-role': 'MEMBER',
-          'x-mock-email': 'employee@company.internal',
+          'x-mock-role': 'ADMIN',
+          'x-mock-email': 'admin@company.internal',
         },
         body: JSON.stringify({
           messages: [{ role: 'user', content: query }],
@@ -337,12 +349,12 @@ export default function ChatPage() {
               className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-colors min-h-[40px]"
             >
               <Plus className="w-4 h-4" />
-              <span>New Conversation</span>
+              <span>{t.newConversation}</span>
             </button>
 
             {/* Threads Header */}
             <div className="flex items-center justify-between px-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-              <span>Past Conversations</span>
+              <span>{t.pastConversations}</span>
               <span className="font-mono text-slate-500">{conversations.length}</span>
             </div>
 
@@ -350,7 +362,7 @@ export default function ChatPage() {
             <div className="flex-1 overflow-y-auto space-y-1">
               {conversations.length === 0 ? (
                 <div className="text-center py-8 text-xs text-slate-400">
-                  No past conversations
+                  {t.noConversations}
                 </div>
               ) : (
                 conversations.map((thread) => {
@@ -408,7 +420,7 @@ export default function ChatPage() {
               </button>
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                 <Cpu className="w-3.5 h-3.5 text-blue-600" />
-                <span>Model:</span>
+                <span>{t.modelLabel}</span>
               </span>
               <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
                 {AVAILABLE_MODELS.map((model) => {
@@ -434,18 +446,24 @@ export default function ChatPage() {
                 {selectedModel.badge}
               </span>
             </div>
+
+            {/* Language Switcher in Chat Header */}
+            <div className="flex items-center gap-2">
+              <LanguageSwitcher />
+            </div>
           </div>
 
         {/* Suggestions Bar */}
         <div className="flex items-center gap-2 overflow-x-auto">
           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
             <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-            <span>Suggestions:</span>
+            <span>{t.suggestionsLabel}</span>
           </span>
           {[
-            'How do I setup company VPN?',
-            'What is our annual leave policy?',
-            'AWS credentials & security handbook',
+            t.suggestionVpn,
+            t.suggestionLeave,
+            t.suggestionAws,
+            t.suggestionMyanmarLeave,
           ].map((prompt, idx) => (
             <button
               key={idx}
@@ -494,7 +512,7 @@ export default function ChatPage() {
                 <div className="mt-4 pt-3 border-t border-slate-100">
                   <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
                     <BookOpen className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Verified Citations:</span>
+                    <span>{t.citedSources}:</span>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {msg.citations.map((c, idx) => (
@@ -521,7 +539,7 @@ export default function ChatPage() {
                       className={`p-1 rounded hover:bg-slate-100 transition-colors ${
                         msg.feedbackGiven === 'UP' ? 'text-emerald-600 font-bold' : ''
                       }`}
-                      title="Accurate and helpful"
+                      title={t.feedbackHelpful}
                     >
                       <ThumbsUp className="w-3.5 h-3.5" />
                     </button>
@@ -531,7 +549,7 @@ export default function ChatPage() {
                       className={`p-1 rounded hover:bg-slate-100 transition-colors ${
                         msg.feedbackGiven === 'DOWN' ? 'text-rose-600 font-bold' : ''
                       }`}
-                      title="Inaccurate or incomplete"
+                      title={t.feedbackUnhelpful}
                     >
                       <ThumbsDown className="w-3.5 h-3.5" />
                     </button>
@@ -548,7 +566,7 @@ export default function ChatPage() {
                     className="inline-flex items-center gap-1 text-slate-500 hover:text-blue-600 font-medium"
                   >
                     <LifeBuoy className="w-3.5 h-3.5" />
-                    <span>Open Ticket</span>
+                    <span>{t.openTicket}</span>
                   </button>
                 </div>
               )}
@@ -569,7 +587,7 @@ export default function ChatPage() {
         <div className="relative flex items-center bg-white rounded-xl border border-slate-200 shadow-sm focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600">
           <input
             type="text"
-            placeholder="Ask anything about company policies, VPN, AWS, benefits..."
+            placeholder={t.inputPlaceholder}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             disabled={isStreaming}
@@ -592,7 +610,7 @@ export default function ChatPage() {
           <div className="flex items-center justify-between pb-4 border-b border-slate-100">
             <div className="flex items-center gap-2 font-semibold text-slate-900 text-sm">
               <BookOpen className="w-4 h-4 text-blue-600" />
-              <span>Source Citation Inspector</span>
+              <span>{t.drawerTitle}</span>
             </div>
             <button
               onClick={() => setSelectedCitation(null)}
@@ -605,7 +623,7 @@ export default function ChatPage() {
           <div className="flex-1 overflow-y-auto py-5 space-y-4">
             <div>
               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-                Document Title
+                {t.sourceDoc}
               </div>
               <div className="font-semibold text-slate-900 text-sm">
                 {selectedCitation.documentTitle}
@@ -614,7 +632,7 @@ export default function ChatPage() {
 
             <div>
               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-                Source Type & Score
+                {t.relevanceMatch}
               </div>
               <div className="flex items-center gap-2">
                 <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">
@@ -657,7 +675,7 @@ export default function ChatPage() {
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
               <div className="flex items-center gap-2 font-semibold text-slate-900">
                 <LifeBuoy className="w-5 h-5 text-blue-600" />
-                <span>Create Internal Support Ticket</span>
+                <span>{t.createTicketTitle}</span>
               </div>
               <button
                 onClick={() => setTicketModalOpen(false)}
@@ -675,7 +693,7 @@ export default function ChatPage() {
               <form onSubmit={handleTicketCreate} className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Ticket Subject
+                    {t.ticketSubject}
                   </label>
                   <input
                     type="text"
@@ -687,7 +705,7 @@ export default function ChatPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Details & Context
+                    {t.ticketDescription}
                   </label>
                   <textarea
                     rows={4}
@@ -703,13 +721,13 @@ export default function ChatPage() {
                     onClick={() => setTicketModalOpen(false)}
                     className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg min-h-[44px]"
                   >
-                    Cancel
+                    {t.cancel}
                   </button>
                   <button
                     type="submit"
                     className="px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm min-h-[44px]"
                   >
-                    Submit Ticket
+                    {t.submit}
                   </button>
                 </div>
               </form>

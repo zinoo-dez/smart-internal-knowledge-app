@@ -33,4 +33,20 @@ describe('RecursiveTextChunker', () => {
       expect(chunk.content.length).toBeGreaterThan(0);
     }
   });
+
+  it('should split Myanmar Unicode text honoring sentence and clause boundaries (။ and ၊)', () => {
+    const chunker = new RecursiveTextChunker(80, 15);
+    const myanmarDoc =
+      'မြန်မာနိုင်ငံရုံးခွဲတွင် အမြဲတမ်းဝန်ထမ်းများသည် နှစ်စဉ်လုပ်သက်ခွင့် ၂၀ ရက် ခံစားခွင့်ရှိပါသည်။' +
+      'အရေးပေါ်နှင့် ဆေးခွင့်အတွက် ၁၀ ရက် ရရှိမည်ဖြစ်ပြီး၊ သုံးရက်ထက်ကျော်ပါက ဆရာဝန်ဆေးစာ တင်ပြရပါမည်။' +
+      'ရုံးပိတ်ရက်များတွင် အစိုးရရုံးပိတ်ရက်များနှင့် သင်္ကြန်ရုံးပိတ်ရက်များ ပါဝင်ပါသည်။';
+
+    const chunks = chunker.splitText(myanmarDoc);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(chunk.content.length).toBeGreaterThan(0);
+      // Chunks should contain valid Myanmar Unicode text
+      expect(/[\u1000-\u109F]/.test(chunk.content)).toBe(true);
+    }
+  });
 });

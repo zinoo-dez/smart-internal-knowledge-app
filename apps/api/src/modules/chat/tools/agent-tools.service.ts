@@ -62,7 +62,15 @@ export class AgentToolsService {
     departmentOrTopic: string,
   ): Promise<TeamContactResult> {
     const topicLower = departmentOrTopic.toLowerCase();
-    if (topicLower.includes('hr') || topicLower.includes('leave') || topicLower.includes('benefit') || topicLower.includes('salary')) {
+    if (
+      topicLower.includes('hr') ||
+      topicLower.includes('leave') ||
+      topicLower.includes('benefit') ||
+      topicLower.includes('salary') ||
+      topicLower.includes('ခွင့်') ||
+      topicLower.includes('လစာ') ||
+      topicLower.includes('ကျန်းမာရေး')
+    ) {
       return {
         name: 'Sarah Jenkins',
         role: 'Head of People & HR Operations',
@@ -72,7 +80,15 @@ export class AgentToolsService {
       };
     }
 
-    if (topicLower.includes('security') || topicLower.includes('vpn') || topicLower.includes('credential') || topicLower.includes('access')) {
+    if (
+      topicLower.includes('security') ||
+      topicLower.includes('vpn') ||
+      topicLower.includes('credential') ||
+      topicLower.includes('access') ||
+      topicLower.includes('လုံခြုံရေး') ||
+      topicLower.includes('စကားဝှက်') ||
+      topicLower.includes('ချိတ်')
+    ) {
       return {
         name: 'Alex Rivera',
         role: 'Principal Security & DevOps Engineer',

@@ -20,7 +20,10 @@ export class EmbeddingService {
   async embedText(text: string): Promise<number[]> {
     if (this.geminiEmbedder) {
       try {
-        return await this.geminiEmbedder.embedQuery(text);
+        const result = await this.geminiEmbedder.embedQuery(text);
+        if (Array.isArray(result) && result.length === 768) {
+          return result;
+        }
       } catch (err: unknown) {
         const error = err as Error;
         this.logger.warn(`Gemini embedding API call failed: ${error.message}. Using synthetic fallback embedding.`);
@@ -34,7 +37,17 @@ export class EmbeddingService {
   async embedDocuments(texts: string[]): Promise<number[][]> {
     if (this.geminiEmbedder) {
       try {
-        return await this.geminiEmbedder.embedDocuments(texts);
+        const results = await this.geminiEmbedder.embedDocuments(texts);
+        if (
+          Array.isArray(results) &&
+          results.length === texts.length &&
+          results.every((v) => Array.isArray(v) && v.length === 768)
+        ) {
+          return results;
+        }
+        this.logger.warn(
+          'Gemini batch embedding returned empty or invalid vectors. Using synthetic fallback embeddings.',
+        );
       } catch (err: unknown) {
         const error = err as Error;
         this.logger.warn(`Gemini batch embedding API call failed: ${error.message}. Using synthetic fallback embeddings.`);

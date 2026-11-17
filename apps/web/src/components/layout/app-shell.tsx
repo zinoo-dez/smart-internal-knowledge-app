@@ -14,6 +14,8 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/context/language-context';
+import { LanguageSwitcher } from '@/components/ui/language-switcher';
 
 interface AppShellProps {
   children: ReactNode;
@@ -22,34 +24,35 @@ interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { t } = useLanguage();
 
   const navItems = [
     {
-      label: 'AI Assistant',
+      label: t.navAssistant,
       href: '/chat',
       icon: Bot,
       active: pathname === '/chat' || pathname === '/',
     },
     {
-      label: 'Document Knowledge',
+      label: t.navDocuments,
       href: '/admin/documents',
       icon: FileText,
       active: pathname.startsWith('/admin/documents'),
     },
     {
-      label: 'Knowledge Gaps',
+      label: t.navKnowledgeGaps,
       href: '/admin/knowledge-gaps',
       icon: AlertCircle,
       active: pathname.startsWith('/admin/knowledge-gaps'),
     },
     {
-      label: 'Usage & Analytics',
+      label: t.navAnalytics,
       href: '/admin/analytics',
       icon: BarChart3,
       active: pathname.startsWith('/admin/analytics'),
     },
     {
-      label: 'Audit & Compliance',
+      label: t.navAuditLogs,
       href: '/admin/audit-logs',
       icon: ShieldCheck,
       active: pathname.startsWith('/admin/audit-logs'),
@@ -64,15 +67,18 @@ export function AppShell({ children }: AppShellProps) {
           <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
             KA
           </div>
-          <span className="font-semibold text-slate-900 text-sm">Knowledge Assistant</span>
+          <span className="font-semibold text-slate-900 text-sm">{t.appTitle}</span>
         </div>
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 min-h-[44px] min-w-[44px] flex items-center justify-center"
-          aria-label="Toggle Navigation"
-        >
-          {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-        </button>
+        <div className="flex items-center gap-2">
+          <LanguageSwitcher compact />
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 min-h-[44px] min-w-[44px] flex items-center justify-center"
+            aria-label="Toggle Navigation"
+          >
+            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
       </div>
 
       {/* Desktop Navigation Sidebar */}
@@ -88,15 +94,15 @@ export function AppShell({ children }: AppShellProps) {
             <BookOpen className="w-5 h-5" />
           </div>
           <div>
-            <div className="font-semibold text-slate-900 text-sm leading-tight">Internal Knowledge</div>
-            <div className="text-xs text-slate-500 font-medium">Enterprise Assistant</div>
+            <div className="font-semibold text-slate-900 text-sm leading-tight">{t.appTitle}</div>
+            <div className="text-xs text-slate-500 font-medium">{t.appSubtitle}</div>
           </div>
         </div>
 
         {/* Navigation Links */}
         <nav className="flex-1 px-3 py-6 space-y-1.5">
           <div className="px-3 pb-2 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-            Workspace
+            {t.navWorkspace}
           </div>
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -119,14 +125,20 @@ export function AppShell({ children }: AppShellProps) {
           })}
         </nav>
 
+        {/* Language Selection Card */}
+        <div className="px-4 py-3 mx-3 mb-2 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between">
+          <span className="text-xs font-medium text-slate-600">{t.languageLabel}</span>
+          <LanguageSwitcher />
+        </div>
+
         {/* Tenant Organization Context Card */}
-        <div className="p-4 m-3 rounded-lg bg-slate-50 border border-slate-200 text-xs">
+        <div className="p-4 m-3 mb-8 rounded-lg bg-slate-50 border border-slate-200 text-xs">
           <div className="flex items-center gap-1.5 font-medium text-slate-700 mb-1">
             <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-            <span>Multi-Tenant Active</span>
+            <span>{t.multiTenantActive}</span>
           </div>
           <p className="text-slate-500 text-[11px] leading-relaxed">
-            Role: <span className="font-semibold text-slate-700">ADMIN</span>
+            {t.roleAdmin}
           </p>
           <p className="text-slate-400 text-[10px] mt-1 font-mono truncate">
             Org: mock-org-default
