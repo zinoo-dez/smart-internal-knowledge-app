@@ -48,6 +48,12 @@ export function AppShell({ children }: AppShellProps) {
       icon: BarChart3,
       active: pathname.startsWith('/admin/analytics'),
     },
+    {
+      label: 'Audit & Compliance',
+      href: '/admin/audit-logs',
+      icon: ShieldCheck,
+      active: pathname.startsWith('/admin/audit-logs'),
+    },
   ];
 
   return (

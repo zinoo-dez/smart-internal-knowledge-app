@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import {
   Department,
   DocumentCitation,
@@ -10,6 +10,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { EmbeddingService } from '../documents/services/embedding.service';
 import { SearchQueryDto } from './dto/search-query.dto';
+import { RerankService } from './rerank.service';
 
 interface RawSearchResult {
   chunk_id: string;
@@ -28,6 +29,7 @@ export class HybridSearchService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly embeddingService: EmbeddingService,
+    @Optional() private readonly rerankService?: RerankService,
   ) {}
 
   async search(
@@ -45,6 +47,9 @@ export class HybridSearchService {
     const vectorString = `[${queryVector.join(',')}]`;
 
     try {
+      // If rerank service is active, fetch candidate pool for 2nd stage scoring; otherwise topK
+      const fetchLimit = this.rerankService ? candidateLimit : topK;
+
       // 2. Execute PostgreSQL Native Hybrid Search with Reciprocal Rank Fusion (RRF) & Department ACLs
       const rawResults = await this.prisma.client.$queryRawUnsafe<RawSearchResult[]>(
         `WITH vector_matches AS (
@@ -96,12 +101,12 @@ export class HybridSearchService {
         tenant.organizationId,
         candidateLimit,
         dto.query,
-        topK,
+        fetchLimit,
         userDept,
         isAdmin,
       );
 
-      const citations: DocumentCitation[] = (rawResults || [])
+      let citations: DocumentCitation[] = (rawResults || [])
         .map((row) => ({
           chunkId: row.chunk_id,
           documentId: row.document_id,
@@ -112,6 +117,11 @@ export class HybridSearchService {
           relevanceScore: Number(row.relevance_score),
         }))
         .filter((c) => c.relevanceScore >= minScore);
+
+      // Stage 2: 2nd-Stage Cross-Encoder Re-Ranking
+      if (this.rerankService && citations.length > 0) {
+        citations = await this.rerankService.rerank(dto.query, citations, topK);
+      }
 
       return { citations };
     } catch (err: unknown) {

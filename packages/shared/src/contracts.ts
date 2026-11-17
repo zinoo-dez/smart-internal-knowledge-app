@@ -100,12 +100,21 @@ export interface FeedbackSubmissionRequest {
   comment?: string;
 }
 
+export interface SemanticCacheStats {
+  hits: number;
+  misses: number;
+  hitRate: number; // percentage 0-100
+  cachedQueriesCount: number;
+  estimatedCostSavingsUsd: number;
+}
+
 export interface AnalyticsSummaryResponse {
   totalQueries: number;
   totalDocuments: number;
   totalTokensUsed: number;
   satisfactionRate: number; // percentage
   topQueries: { query: string; count: number }[];
+  cacheStats?: SemanticCacheStats;
 }
 
 // Connector Contracts
@@ -198,3 +207,66 @@ export interface ResolveGapRequest {
 export interface AssignGapRequest {
   assignedTo: string;
 }
+
+// Audit Log & Compliance Contracts
+export interface AuditLogItem {
+  id: string;
+  organizationId: string;
+  userId: string;
+  userEmail: string;
+  userName?: string;
+  action: string;
+  resource: string;
+  details?: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+export interface QueryAuditLogsParams {
+  page?: number;
+  limit?: number;
+  action?: string;
+  userId?: string;
+  resource?: string;
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+}
+
+export interface PaginatedAuditLogsResponse {
+  items: AuditLogItem[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+// Slack Event & Interactive Bot Contracts
+export interface SlackEventPayload {
+  token?: string;
+  team_id?: string;
+  api_app_id?: string;
+  type?: string; // 'url_verification' | 'event_callback'
+  challenge?: string;
+  event?: {
+    type: string; // 'app_mention' | 'message'
+    user: string;
+    text: string;
+    ts: string;
+    channel: string;
+    event_ts?: string;
+    thread_ts?: string;
+    bot_id?: string;
+    subtype?: string;
+  };
+  event_id?: string;
+  event_time?: number;
+}
+
+export interface SlackBlockKitMessage {
+  channel: string;
+  thread_ts?: string;
+  text: string;
+  blocks: Array<Record<string, unknown>>;
+}
+
+

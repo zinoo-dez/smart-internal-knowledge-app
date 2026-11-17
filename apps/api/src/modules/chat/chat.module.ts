@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ChatController } from './chat.controller';
 import { RagAgentService } from './rag-agent.service';
 import { AgentToolsService } from './tools/agent-tools.service';
@@ -8,7 +8,7 @@ import { AuthModule } from '../auth/auth.module';
 import { DocumentsModule } from '../documents/documents.module';
 
 @Module({
-  imports: [AuthModule, SearchModule, DocumentsModule],
+  imports: [AuthModule, SearchModule, forwardRef(() => DocumentsModule)],
   controllers: [ChatController],
   providers: [RagAgentService, AgentToolsService, ConversationsService],
   exports: [RagAgentService, AgentToolsService, ConversationsService],

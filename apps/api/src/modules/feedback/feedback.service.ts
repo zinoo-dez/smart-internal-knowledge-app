@@ -3,9 +3,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
   AnalyticsSummaryResponse,
+  AuditAction,
   FeedbackType,
   KnowledgeGapItem,
   KnowledgeGapSummaryResponse,
@@ -13,12 +15,18 @@ import {
 } from '@knowledge/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { SubmitFeedbackDto } from './dto/submit-feedback.dto';
+import { AuditLogService } from '../audit/audit-log.service';
+import { SemanticCacheService } from '../search/semantic-cache.service';
 
 @Injectable()
 export class FeedbackService {
   private readonly logger = new Logger(FeedbackService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly auditLogService?: AuditLogService,
+    @Optional() private readonly semanticCacheService?: SemanticCacheService,
+  ) {}
 
   async submitFeedback(
     tenant: TenantContext,
@@ -79,6 +87,10 @@ export class FeedbackService {
       ? Math.round((thumbsUpCount / feedbacks.length) * 100)
       : 100;
 
+    const cacheStats = this.semanticCacheService
+      ? this.semanticCacheService.getStats(orgId)
+      : undefined;
+
     return {
       totalQueries,
       totalDocuments,
@@ -88,6 +100,7 @@ export class FeedbackService {
         query: q.query,
         count: q._count.query,
       })),
+      cacheStats,
     };
   }
 
@@ -169,6 +182,19 @@ export class FeedbackService {
       },
     });
 
+    if (this.auditLogService) {
+      await this.auditLogService.recordEvent({
+        organizationId: tenant.organizationId,
+        userId: tenant.userId,
+        action: AuditAction.KNOWLEDGE_GAP_RESOLVED,
+        resource: `QueryLog:${gapId}`,
+        details: {
+          query: log.query,
+          resolutionNote,
+        },
+      });
+    }
+
     return { success: true };
   }
 
@@ -189,6 +215,19 @@ export class FeedbackService {
       where: { id: gapId },
       data: { assignedTo },
     });
+
+    if (this.auditLogService) {
+      await this.auditLogService.recordEvent({
+        organizationId: tenant.organizationId,
+        userId: tenant.userId,
+        action: AuditAction.KNOWLEDGE_GAP_ASSIGNED,
+        resource: `QueryLog:${gapId}`,
+        details: {
+          query: log.query,
+          assignedTo,
+        },
+      });
+    }
 
     return { success: true };
   }

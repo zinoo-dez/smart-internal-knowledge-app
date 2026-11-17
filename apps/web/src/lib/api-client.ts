@@ -1,5 +1,6 @@
 import {
   AnalyticsSummaryResponse,
+  AuditLogItem,
   ConnectorStatusResponse,
   ConversationDetail,
   ConversationSummary,
@@ -13,6 +14,8 @@ import {
   KnowledgeGapItem,
   KnowledgeGapSummaryResponse,
   NotionSyncRequest,
+  PaginatedAuditLogsResponse,
+  QueryAuditLogsParams,
   SlackWebhookPayload,
   TicketStatus,
 } from '@knowledge/shared';
@@ -139,6 +142,13 @@ export async function fetchAnalytics(): Promise<AnalyticsSummaryResponse> {
         { query: 'AWS credentials setup', count: 18 },
         { query: 'Dental insurance coverage', count: 12 },
       ],
+      cacheStats: {
+        hits: 42,
+        misses: 25,
+        hitRate: 62.7,
+        cachedQueriesCount: 18,
+        estimatedCostSavingsUsd: 0.84,
+      },
     };
   }
 }
@@ -359,3 +369,78 @@ export async function assignKnowledgeGap(
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
   return await res.json();
 }
+
+// Audit Logs & Security Compliance
+export async function fetchAuditLogs(
+  params?: QueryAuditLogsParams,
+): Promise<PaginatedAuditLogsResponse> {
+  const query = new URLSearchParams();
+  if (params?.page) query.set('page', String(params.page));
+  if (params?.limit) query.set('limit', String(params.limit));
+  if (params?.action) query.set('action', params.action);
+  if (params?.search) query.set('search', params.search);
+  if (params?.startDate) query.set('startDate', params.startDate);
+  if (params?.endDate) query.set('endDate', params.endDate);
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/audit-logs?${query.toString()}`, {
+      headers: DEFAULT_HEADERS,
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.warn('Backend unavailable, using initial demo audit logs:', err);
+    return {
+      items: [
+        {
+          id: 'mock-audit-1',
+          organizationId: 'mock-org-default',
+          userId: 'dev-admin-01',
+          userEmail: 'admin@company.internal',
+          userName: 'Security Administrator',
+          action: 'DOCUMENT_INGESTED',
+          resource: 'Document:seed-doc-1',
+          details: { title: 'Company Remote Work & VPN Setup Handbook', department: 'ALL' },
+          createdAt: new Date().toISOString(),
+        },
+        {
+          id: 'mock-audit-2',
+          organizationId: 'mock-org-default',
+          userId: 'dev-admin-01',
+          userEmail: 'admin@company.internal',
+          userName: 'Security Administrator',
+          action: 'PII_FLAGGED',
+          resource: 'UserQueryPrompt',
+          details: { sanitizedPatterns: ['AWS_ACCESS_KEY'] },
+          createdAt: new Date(Date.now() - 3600000).toISOString(),
+        },
+        {
+          id: 'mock-audit-3',
+          organizationId: 'mock-org-default',
+          userId: 'dev-admin-01',
+          userEmail: 'admin@company.internal',
+          userName: 'Security Administrator',
+          action: 'KNOWLEDGE_GAP_RESOLVED',
+          resource: 'QueryLog:log-201',
+          details: { query: 'WireGuard setup steps', resolutionNote: 'Handbook updated' },
+          createdAt: new Date(Date.now() - 7200000).toISOString(),
+        },
+      ],
+      total: 3,
+      page: 1,
+      limit: 25,
+      totalPages: 1,
+    };
+  }
+}
+
+export function getExportAuditLogsUrl(params?: QueryAuditLogsParams): string {
+  const query = new URLSearchParams();
+  if (params?.action) query.set('action', params.action);
+  if (params?.search) query.set('search', params.search);
+  if (params?.startDate) query.set('startDate', params.startDate);
+  if (params?.endDate) query.set('endDate', params.endDate);
+  return `${API_BASE_URL}/api/admin/audit-logs/export?${query.toString()}`;
+}
+

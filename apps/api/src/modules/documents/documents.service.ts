@@ -3,8 +3,10 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import {
+  AuditAction,
   Department,
   DocumentSource,
   DocumentSummary,
@@ -18,6 +20,8 @@ import { CreateDocumentDto } from './dto/create-document.dto';
 import { IngestionProcessor } from './workers/ingestion.processor';
 import { extractTextFromPdf } from './utils/pdf-parser';
 import { DataSanitizerService } from './services/data-sanitizer.service';
+import { AuditLogService } from '../audit/audit-log.service';
+import { SemanticCacheService } from '../search/semantic-cache.service';
 
 @Injectable()
 export class DocumentsService {
@@ -27,6 +31,8 @@ export class DocumentsService {
     private readonly prisma: PrismaService,
     private readonly ingestionProcessor: IngestionProcessor,
     private readonly dataSanitizer: DataSanitizerService,
+    @Optional() private readonly auditLogService?: AuditLogService,
+    @Optional() private readonly semanticCacheService?: SemanticCacheService,
   ) {}
 
   async createDocumentFromFile(
@@ -73,6 +79,24 @@ export class DocumentsService {
 
     const jobId = `job-${document.id}`;
     const sanitizedContent = this.dataSanitizer.sanitizeText(dto.content);
+
+    if (this.auditLogService) {
+      await this.auditLogService.recordEvent({
+        organizationId: tenant.organizationId,
+        userId: tenant.userId,
+        action: AuditAction.DOCUMENT_INGESTED,
+        resource: `Document:${document.id}`,
+        details: {
+          title: dto.title,
+          source: dto.source,
+          department: dept,
+        },
+      });
+    }
+
+    if (this.semanticCacheService) {
+      await this.semanticCacheService.invalidate(tenant.organizationId, dept);
+    }
 
     // Execute ingestion asynchronously in background without blocking response
     setImmediate(async () => {
@@ -179,6 +203,26 @@ export class DocumentsService {
     }
 
     await this.prisma.client.document.delete({ where: { id } });
+
+    if (this.auditLogService) {
+      await this.auditLogService.recordEvent({
+        organizationId: tenant.organizationId,
+        userId: tenant.userId,
+        action: AuditAction.DOCUMENT_DELETED,
+        resource: `Document:${id}`,
+        details: {
+          title: doc.title,
+        },
+      });
+    }
+
+    if (this.semanticCacheService) {
+      await this.semanticCacheService.invalidate(
+        tenant.organizationId,
+        doc.department as unknown as Department,
+      );
+    }
+
     return { success: true };
   }
 }

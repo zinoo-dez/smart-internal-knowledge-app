@@ -8,6 +8,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
 import { SearchModule } from './modules/search/search.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
+import { AuditModule } from './modules/audit/audit.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { FeedbackModule } from './modules/feedback/feedback.module';
     SearchModule,
     ChatModule,
     FeedbackModule,
+    AuditModule,
   ],
   providers: [
     {

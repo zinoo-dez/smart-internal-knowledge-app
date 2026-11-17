@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Response } from 'express';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { ChatOpenAI } from '@langchain/openai';
@@ -13,6 +13,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AgentToolsService } from './tools/agent-tools.service';
 import { ConversationsService } from './conversations.service';
 import { DataSanitizerService } from '../documents/services/data-sanitizer.service';
+import { SemanticCacheService } from '../search/semantic-cache.service';
+import { EmbeddingService } from '../documents/services/embedding.service';
 import { ChatCompletionDto } from './dto/chat-completion.dto';
 
 @Injectable()
@@ -73,8 +75,10 @@ Would you like me to open an internal support ticket with HR & Workplace Operati
   constructor(
     private readonly prisma: PrismaService,
     private readonly agentToolsService: AgentToolsService,
-    private readonly conversationsService?: ConversationsService,
-    private readonly dataSanitizer?: DataSanitizerService,
+    @Optional() private readonly conversationsService?: ConversationsService,
+    @Optional() private readonly dataSanitizer?: DataSanitizerService,
+    @Optional() private readonly semanticCacheService?: SemanticCacheService,
+    @Optional() private readonly embeddingService?: EmbeddingService,
   ) {}
 
   private resolveChatModel(
@@ -225,6 +229,107 @@ Standalone Search Query:`;
     return currentQuery;
   }
 
+  /**
+   * Generates a non-streaming grounded answer with citations.
+   * Used for Slack Bot, Teams, and programmatic background workflows.
+   */
+  async generateAnswer(
+    tenant: TenantContext,
+    userQuery: string,
+    modelProvider?: string,
+    modelName?: string,
+  ): Promise<{ text: string; citations: DocumentCitation[] }> {
+    const sanitizedUserMessage = this.dataSanitizer
+      ? this.dataSanitizer.sanitizeText(userQuery)
+      : userQuery;
+
+    // 0. Check Semantic Cache for Instant Zero-Cost Response
+    let queryVector: number[] = [];
+    if (this.semanticCacheService && this.embeddingService) {
+      try {
+        queryVector = await this.embeddingService.embedText(sanitizedUserMessage);
+        const match = await this.semanticCacheService.get(tenant, sanitizedUserMessage, queryVector);
+        if (match) {
+          return { text: match.answer, citations: match.citations };
+        }
+      } catch (err) {
+        this.logger.debug(`Semantic cache check error: ${err}`);
+      }
+    }
+
+    const { model: chatModel, provider: activeProvider } =
+      this.resolveChatModel(modelProvider, modelName);
+
+    const citations: DocumentCitation[] = await this.agentToolsService.searchKnowledgeBase(
+      tenant,
+      sanitizedUserMessage,
+      4,
+    );
+
+    let answerText = '';
+
+    if (citations.length > 0) {
+      const rawContextBlocks = citations
+        .map((c, idx) => `[Source ${idx + 1}] (${c.documentTitle}):\n${c.snippet}`)
+        .join('\n\n');
+
+      const contextBlocks = this.dataSanitizer
+        ? this.dataSanitizer.sanitizeText(rawContextBlocks)
+        : rawContextBlocks;
+
+      const systemPrompt = this.buildSystemPrompt(contextBlocks);
+      const userPrompt = `<user_query>\n${sanitizedUserMessage}\n</user_query>`;
+
+      if (chatModel) {
+        try {
+          const response = await chatModel.invoke([
+            new SystemMessage(systemPrompt),
+            new HumanMessage(userPrompt),
+          ]);
+          answerText = response.content?.toString() || '';
+        } catch (err: unknown) {
+          const error = err as Error;
+          this.logger.warn(`${activeProvider} invoke error: ${error.message}. Using synthetic fallback.`);
+          answerText = this.generateSynthesizedAnswer(sanitizedUserMessage, citations);
+        }
+      } else {
+        answerText = this.generateSynthesizedAnswer(sanitizedUserMessage, citations);
+      }
+    } else {
+      const teamContact = await this.agentToolsService.lookupTeamContact(sanitizedUserMessage);
+      answerText =
+        `I could not find direct information about "${userQuery}" in your company's indexed documents.\n\n` +
+        `For questions regarding this topic, you can contact **${teamContact.name}** (${teamContact.role}) at \`${teamContact.email}\` or Slack \`${teamContact.slackHandle}\`.\n\n` +
+        `Would you like me to open an internal support ticket for this inquiry?`;
+    }
+
+    if (
+      answerText.includes('<strict_operating_rules>') ||
+      answerText.includes('<system_identity>') ||
+      answerText.includes('TRUTHFULNESS & GROUNDING')
+    ) {
+      answerText = 'I am your company knowledge assistant. How can I assist you with company documentation today?';
+    }
+
+    // Cache grounded answer in Semantic Cache
+    if (
+      this.semanticCacheService &&
+      queryVector.length > 0 &&
+      citations.length > 0 &&
+      answerText
+    ) {
+      await this.semanticCacheService.set(
+        tenant,
+        sanitizedUserMessage,
+        queryVector,
+        answerText,
+        citations,
+      );
+    }
+
+    return { text: answerText, citations };
+  }
+
   async streamChat(
     tenant: TenantContext,
     dto: ChatCompletionDto,
@@ -264,6 +369,39 @@ Standalone Search Query:`;
       this.logger.warn(
         `Adversarial prompt injection pattern detected from user ${tenant.userId} in tenant ${tenant.organizationId}`,
       );
+    }
+
+    // 2B. Check Semantic Cache for Instant Zero-Cost Response on standalone queries
+    let queryVector: number[] = [];
+    if (this.semanticCacheService && this.embeddingService && priorTurns.length === 0) {
+      try {
+        queryVector = await this.embeddingService.embedText(sanitizedUserMessage);
+        const cacheHit = await this.semanticCacheService.get(
+          tenant,
+          sanitizedUserMessage,
+          queryVector,
+        );
+        if (cacheHit) {
+          res.write(`data: ${JSON.stringify({ type: 'citations', citations: cacheHit.citations })}\n\n`);
+          await this.streamSyntheticResponse(cacheHit.answer, res);
+          res.write(
+            `data: ${JSON.stringify({
+              type: 'done',
+              latencyMs: 15,
+              promptTokens: Math.ceil(sanitizedUserMessage.length / 4),
+              completionTokens: Math.ceil(cacheHit.answer.length / 4),
+              totalTokens:
+                Math.ceil(sanitizedUserMessage.length / 4) +
+                Math.ceil(cacheHit.answer.length / 4),
+              isCached: true,
+            })}\n\n`,
+          );
+          res.end();
+          return;
+        }
+      } catch (err) {
+        this.logger.debug(`Semantic cache check bypassed: ${err}`);
+      }
     }
 
     // 3. Condense multi-turn query into standalone retrieval query
@@ -338,6 +476,22 @@ Standalone Search Query:`;
     ) {
       this.logger.error('Canary alert: Model response contained internal prompt instructions. Redacting response.');
       fullResponseText = 'I am your company knowledge assistant. How can I assist you with company documentation today?';
+    }
+
+    // 7. Store in Semantic Cache for instant future answers
+    if (
+      this.semanticCacheService &&
+      queryVector.length > 0 &&
+      citations.length > 0 &&
+      fullResponseText
+    ) {
+      await this.semanticCacheService.set(
+        tenant,
+        sanitizedUserMessage,
+        queryVector,
+        fullResponseText,
+        citations,
+      );
     }
 
     const latencyMs = Date.now() - startTime;
