@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    name: Typecheck, Test & Build
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: "postgresql://postgres:postgrespassword@localhost:5432/knowledge_assistant_db?schema=public"
+      NEXT_PUBLIC_API_URL: "http://localhost:4000"
+      PORT: 4000
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Generate Prisma Client
+        run: npm run db:generate --workspace=@knowledge/database
+
+      - name: Turborepo Typecheck
+        run: npx turbo run typecheck
+
+      - name: Turborepo Test Suite
+        run: npx turbo run test
+
+      - name: Turborepo Production Build
+        run: npx turbo run build

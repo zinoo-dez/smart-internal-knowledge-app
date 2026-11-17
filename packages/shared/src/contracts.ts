@@ -1,0 +1,104 @@
+import { DocumentSource, FeedbackType, IngestionStatus, TicketStatus, UserRole } from './enums';
+
+// Auth & Tenant Context
+export interface TenantContext {
+  organizationId: string;
+  userId: string;
+  userRole: UserRole;
+  userEmail: string;
+}
+
+// Ingestion Contracts
+export interface IngestDocumentRequest {
+  title: string;
+  source: DocumentSource;
+  sourceUrl?: string;
+  content?: string;
+  mimeType?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface IngestDocumentResponse {
+  documentId: string;
+  status: IngestionStatus;
+  jobId: string;
+  message: string;
+}
+
+export interface DocumentSummary {
+  id: string;
+  organizationId: string;
+  title: string;
+  source: DocumentSource;
+  sourceUrl?: string;
+  status: IngestionStatus;
+  chunkCount: number;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Retrieval & Citations
+export interface DocumentCitation {
+  chunkId: string;
+  documentId: string;
+  documentTitle: string;
+  source: DocumentSource;
+  sourceUrl?: string;
+  snippet: string;
+  relevanceScore: number;
+}
+
+export interface SearchQueryRequest {
+  query: string;
+  topK?: number;
+  minScore?: number;
+  sourceFilter?: DocumentSource[];
+}
+
+export interface SearchQueryResponse {
+  citations: DocumentCitation[];
+}
+
+// Chat & Tool Calling Contracts
+export interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
+
+export interface ChatCompletionRequest {
+  messages: ChatMessage[];
+  modelProvider?: string;
+  modelName?: string;
+  conversationId?: string;
+}
+
+export interface CreateTicketParams {
+  title: string;
+  description: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH';
+  category: 'IT' | 'HR' | 'OPS';
+}
+
+export interface TeamContactResult {
+  name: string;
+  role: string;
+  department: string;
+  email: string;
+  slackHandle: string;
+}
+
+// Feedback & Analytics Contracts
+export interface FeedbackSubmissionRequest {
+  queryLogId: string;
+  feedbackType: FeedbackType;
+  comment?: string;
+}
+
+export interface AnalyticsSummaryResponse {
+  totalQueries: number;
+  totalDocuments: number;
+  totalTokensUsed: number;
+  satisfactionRate: number; // percentage
+  topQueries: { query: string; count: number }[];
+}

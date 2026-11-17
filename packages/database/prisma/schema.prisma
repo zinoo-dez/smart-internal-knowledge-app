@@ -1,0 +1,205 @@
+datasource db {
+  provider   = "postgresql"
+  extensions = [pgvector(map: "vector")]
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+enum UserRole {
+  ADMIN
+  MEMBER
+}
+
+enum DocumentSource {
+  FILE_UPLOAD
+  NOTION
+  SLACK
+  GOOGLE_DRIVE
+}
+
+enum IngestionStatus {
+  PENDING
+  PROCESSING
+  INDEXED
+  FAILED
+}
+
+enum FeedbackType {
+  THUMBS_UP
+  THUMBS_DOWN
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum TicketCategory {
+  IT
+  HR
+  OPS
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
+model Organization {
+  id          String   @id @default(uuid())
+  clerkOrgId  String   @unique
+  name        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users          User[]
+  documents      Document[]
+  documentChunks DocumentChunk[]
+  queryLogs      QueryLog[]
+  feedbacks      Feedback[]
+  supportTickets SupportTicket[]
+  auditLogs      AuditLog[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String       @id @default(uuid())
+  clerkUserId    String       @unique
+  organizationId String
+  email          String
+  name           String?
+  role           UserRole     @default(MEMBER)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  queryLogs      QueryLog[]
+  feedbacks      Feedback[]
+  supportTickets SupportTicket[]
+  auditLogs      AuditLog[]
+
+  @@index([organizationId])
+  @@map("users")
+}
+
+model Document {
+  id             String          @id @default(uuid())
+  organizationId String
+  title          String
+  source         DocumentSource  @default(FILE_UPLOAD)
+  sourceUrl      String?
+  mimeType       String?
+  status         IngestionStatus @default(PENDING)
+  errorMessage   String?
+  metadata       Json?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  chunks         DocumentChunk[]
+
+  @@index([organizationId, status])
+  @@map("documents")
+}
+
+model DocumentChunk {
+  id             String                      @id @default(uuid())
+  documentId     String
+  organizationId String
+  chunkIndex     Int
+  content        String
+  embedding      Unsupported("vector(768)")? // Google Gemini text-embedding-004 dimension
+  tsv            Unsupported("tsvector")?    // Full-text search keyword tsvector
+  metadata       Json?
+  createdAt      DateTime                    @default(now())
+
+  document       Document                    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  organization   Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([documentId])
+  @@map("document_chunks")
+}
+
+model QueryLog {
+  id               String       @id @default(uuid())
+  organizationId   String
+  userId           String
+  conversationId   String?
+  query            String
+  response         String
+  modelProvider    String       @default("GEMINI")
+  modelName        String       @default("gemini-1.5-flash")
+  promptTokens     Int          @default(0)
+  completionTokens Int          @default(0)
+  totalTokens      Int          @default(0)
+  latencyMs        Int          @default(0)
+  langsmithRunId   String?
+  citations        Json?
+  createdAt        DateTime     @default(now())
+
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feedbacks        Feedback[]
+
+  @@index([organizationId, createdAt])
+  @@map("query_logs")
+}
+
+model Feedback {
+  id             String       @id @default(uuid())
+  queryLogId     String
+  userId         String
+  organizationId String
+  type           FeedbackType
+  comment        String?
+  createdAt      DateTime     @default(now())
+
+  queryLog       QueryLog     @relation(fields: [queryLogId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@map("feedbacks")
+}
+
+model SupportTicket {
+  id             String         @id @default(uuid())
+  organizationId String
+  userId         String
+  title          String
+  description    String
+  priority       TicketPriority @default(MEDIUM)
+  category       TicketCategory @default(IT)
+  status         TicketStatus   @default(OPEN)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@map("support_tickets")
+}
+
+model AuditLog {
+  id             String       @id @default(uuid())
+  organizationId String
+  userId         String
+  action         String
+  resource       String
+  details        Json?
+  createdAt      DateTime     @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@map("audit_logs")
+}

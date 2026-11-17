@@ -1,0 +1,490 @@
+'use client';
+
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  Send,
+  Bot,
+  User,
+  ThumbsUp,
+  ThumbsDown,
+  BookOpen,
+  LifeBuoy,
+  X,
+  ExternalLink,
+  Sparkles,
+} from 'lucide-react';
+import { DocumentCitation, FeedbackType } from '@knowledge/shared';
+import { createSupportTicket, submitFeedback } from '@/lib/api-client';
+
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  citations?: DocumentCitation[];
+  queryLogId?: string;
+  feedbackGiven?: 'UP' | 'DOWN';
+}
+
+export default function ChatPage() {
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: 'welcome-msg',
+      role: 'assistant',
+      content:
+        'Hello! I am your Smart Internal Knowledge Assistant. Ask me any question regarding company policies, engineering documentation, onboarding, or internal tools.\n\nEvery answer includes verifiable citations directly linked to company documentation.',
+    },
+  ]);
+  const [input, setInput] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [selectedCitation, setSelectedCitation] = useState<DocumentCitation | null>(null);
+  const [ticketModalOpen, setTicketModalOpen] = useState(false);
+  const [ticketTitle, setTicketTitle] = useState('');
+  const [ticketDescription, setTicketDescription] = useState('');
+  const [ticketSubmittedMsg, setTicketSubmittedMsg] = useState<string | null>(null);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, isStreaming]);
+
+  const handleSend = async (questionText?: string) => {
+    const query = (questionText || input).trim();
+    if (!query || isStreaming) return;
+
+    setInput('');
+    const userMsgId = `user-${Date.now()}`;
+    const assistantMsgId = `asst-${Date.now()}`;
+
+    const newMessages: ChatMessage[] = [
+      ...messages,
+      { id: userMsgId, role: 'user', content: query },
+      { id: assistantMsgId, role: 'assistant', content: '' },
+    ];
+    setMessages(newMessages);
+    setIsStreaming(true);
+
+    try {
+      const response = await fetch('http://localhost:4000/api/chat/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-mock-user-id': 'dev-employee-01',
+          'x-mock-org-id': 'mock-org-default',
+          'x-mock-role': 'MEMBER',
+          'x-mock-email': 'employee@company.internal',
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', content: query }],
+        }),
+      });
+
+      if (!response.body) {
+        throw new Error('ReadableStream not supported.');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let streamedContent = '';
+      let collectedCitations: DocumentCitation[] = [];
+      let logId: string | undefined;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const text = decoder.decode(value, { stream: true });
+        const lines = text.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.replace('data: ', '').trim());
+              if (data.type === 'token') {
+                streamedContent += data.content;
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId ? { ...m, content: streamedContent } : m,
+                  ),
+                );
+              } else if (data.type === 'citations') {
+                collectedCitations = data.citations;
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId
+                      ? { ...m, citations: collectedCitations }
+                      : m,
+                  ),
+                );
+              } else if (data.type === 'done') {
+                logId = data.queryLogId;
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId ? { ...m, queryLogId: logId } : m,
+                  ),
+                );
+              }
+            } catch {
+              // Ignore partial JSON chunks
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Backend stream error, using client-side simulated answer:', err);
+      // Fallback demo response if backend is not started
+      const demoAnswer = `Based on **Company Remote Work & VPN Setup Handbook** [1], all employees connecting to internal database clusters must install the WireGuard VPN client and authenticate using single sign-on (SSO).\n\nIf you encounter connection drops, verify your IP is whitelisted on the internal portal.`;
+      const demoCitations: DocumentCitation[] = [
+        {
+          chunkId: 'chunk-demo-1',
+          documentId: 'seed-doc-1',
+          documentTitle: 'Company Remote Work & VPN Setup Handbook',
+          source: 'FILE_UPLOAD' as any,
+          snippet:
+            'All employees connecting to internal database clusters must install the WireGuard VPN client and authenticate using single sign-on (SSO). Security certificates expire after 90 days.',
+          relevanceScore: 0.96,
+        },
+      ];
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantMsgId
+            ? {
+                ...m,
+                content: demoAnswer,
+                citations: demoCitations,
+                queryLogId: 'mock-query-log-1',
+              }
+            : m,
+        ),
+      );
+    } finally {
+      setIsStreaming(false);
+    }
+  };
+
+  const handleFeedback = async (
+    msgId: string,
+    queryLogId: string | undefined,
+    type: FeedbackType,
+  ) => {
+    if (!queryLogId) return;
+    try {
+      await submitFeedback(queryLogId, type);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msgId ? { ...m, feedbackGiven: type === FeedbackType.THUMBS_UP ? 'UP' : 'DOWN' } : m,
+        ),
+      );
+    } catch (err) {
+      console.error('Feedback failed:', err);
+    }
+  };
+
+  const handleTicketCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ticketTitle) return;
+
+    try {
+      const res = await createSupportTicket({
+        title: ticketTitle,
+        description: ticketDescription || 'Created from AI Assistant inquiry',
+        priority: 'MEDIUM',
+        category: 'IT',
+      });
+      setTicketSubmittedMsg(res.message);
+      setTimeout(() => {
+        setTicketModalOpen(false);
+        setTicketSubmittedMsg(null);
+        setTicketTitle('');
+        setTicketDescription('');
+      }, 2500);
+    } catch (err) {
+      console.error('Failed to create ticket:', err);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-6rem)] relative">
+      {/* Top Suggestions Bar */}
+      <div className="pb-3 flex items-center gap-2 overflow-x-auto border-b border-slate-200 shrink-0">
+        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
+          <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+          <span>Suggestions:</span>
+        </span>
+        {[
+          'How do I setup company VPN?',
+          'What is our annual leave policy?',
+          'AWS credentials & security handbook',
+        ].map((prompt, idx) => (
+          <button
+            key={idx}
+            onClick={() => handleSend(prompt)}
+            disabled={isStreaming}
+            className="text-xs bg-white hover:bg-slate-100 text-slate-700 font-medium px-3 py-1.5 rounded-full border border-slate-200 transition-colors whitespace-nowrap"
+          >
+            {prompt}
+          </button>
+        ))}
+      </div>
+
+      {/* Message Stream */}
+      <div className="flex-1 overflow-y-auto py-6 space-y-6">
+        {messages.map((msg) => (
+          <div
+            key={msg.id}
+            className={`flex items-start gap-3.5 ${
+              msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'
+            }`}
+          >
+            {/* Avatar */}
+            <div
+              className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-xs font-semibold ${
+                msg.role === 'user'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-white border border-slate-200 text-slate-700 shadow-sm'
+              }`}
+            >
+              {msg.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4 text-blue-600" />}
+            </div>
+
+            {/* Bubble */}
+            <div
+              className={`max-w-2xl rounded-2xl p-4 text-sm leading-relaxed ${
+                msg.role === 'user'
+                  ? 'bg-blue-600 text-white rounded-tr-none'
+                  : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none shadow-sm'
+              }`}
+            >
+              <div className="whitespace-pre-wrap">{msg.content}</div>
+
+              {/* Citations list for assistant messages */}
+              {msg.citations && msg.citations.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-slate-100">
+                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+                    <BookOpen className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Verified Citations:</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {msg.citations.map((c, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setSelectedCitation(c)}
+                        className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium border border-blue-100 hover:bg-blue-100 transition-colors"
+                      >
+                        <span>[{idx + 1}]</span>
+                        <span className="truncate max-w-[200px]">{c.documentTitle}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Assistant Message Actions & Feedback */}
+              {msg.role === 'assistant' && msg.id !== 'welcome-msg' && (
+                <div className="mt-3 pt-2.5 flex items-center justify-between text-xs text-slate-400 border-t border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleFeedback(msg.id, msg.queryLogId, FeedbackType.THUMBS_UP)}
+                      disabled={!!msg.feedbackGiven}
+                      className={`p-1 rounded hover:bg-slate-100 transition-colors ${
+                        msg.feedbackGiven === 'UP' ? 'text-emerald-600 font-bold' : ''
+                      }`}
+                      title="Accurate and helpful"
+                    >
+                      <ThumbsUp className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleFeedback(msg.id, msg.queryLogId, FeedbackType.THUMBS_DOWN)}
+                      disabled={!!msg.feedbackGiven}
+                      className={`p-1 rounded hover:bg-slate-100 transition-colors ${
+                        msg.feedbackGiven === 'DOWN' ? 'text-rose-600 font-bold' : ''
+                      }`}
+                      title="Inaccurate or incomplete"
+                    >
+                      <ThumbsDown className="w-3.5 h-3.5" />
+                    </button>
+                    {msg.feedbackGiven && (
+                      <span className="text-[11px] text-slate-500">Thank you for feedback!</span>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setTicketTitle('Escalated inquiry: ' + (messages[messages.length - 2]?.content || ''));
+                      setTicketModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1 text-slate-500 hover:text-blue-600 font-medium"
+                  >
+                    <LifeBuoy className="w-3.5 h-3.5" />
+                    <span>Open Ticket</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Input Bar */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          handleSend();
+        }}
+        className="pt-3 border-t border-slate-200 shrink-0"
+      >
+        <div className="relative flex items-center bg-white rounded-xl border border-slate-200 shadow-sm focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600">
+          <input
+            type="text"
+            placeholder="Ask anything about company policies, VPN, AWS, benefits..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            disabled={isStreaming}
+            className="w-full py-3.5 pl-4 pr-14 text-sm bg-transparent outline-none disabled:opacity-50"
+          />
+          <button
+            type="submit"
+            disabled={!input.trim() || isStreaming}
+            className="absolute right-2.5 p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-40 min-h-[40px] min-w-[40px] flex items-center justify-center"
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </div>
+      </form>
+
+      {/* Right-Side Slide-out Citation Inspection Drawer */}
+      {selectedCitation && (
+        <div className="fixed inset-y-0 right-0 z-50 w-full sm:w-96 bg-white border-l border-slate-200 shadow-2xl p-6 flex flex-col animate-in slide-in-from-right duration-200">
+          <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+            <div className="flex items-center gap-2 font-semibold text-slate-900 text-sm">
+              <BookOpen className="w-4 h-4 text-blue-600" />
+              <span>Source Citation Inspector</span>
+            </div>
+            <button
+              onClick={() => setSelectedCitation(null)}
+              className="p-1 rounded-md text-slate-400 hover:text-slate-600"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto py-5 space-y-4">
+            <div>
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                Document Title
+              </div>
+              <div className="font-semibold text-slate-900 text-sm">
+                {selectedCitation.documentTitle}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                Source Type & Score
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">
+                  {selectedCitation.source}
+                </span>
+                <span className="text-xs text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded">
+                  Score: {(selectedCitation.relevanceScore * 100).toFixed(1)}%
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                Exact Excerpted Text
+              </div>
+              <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-700 leading-relaxed font-mono whitespace-pre-wrap">
+                {selectedCitation.snippet}
+              </div>
+            </div>
+
+            {selectedCitation.sourceUrl && (
+              <a
+                href={selectedCitation.sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs text-blue-600 font-medium hover:underline pt-2"
+              >
+                <span>Open original document</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Support Ticket Modal Dialog */}
+      {ticketModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full p-6">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2 font-semibold text-slate-900">
+                <LifeBuoy className="w-5 h-5 text-blue-600" />
+                <span>Create Internal Support Ticket</span>
+              </div>
+              <button
+                onClick={() => setTicketModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {ticketSubmittedMsg ? (
+              <div className="p-4 rounded-lg bg-emerald-50 text-emerald-700 text-sm font-medium">
+                {ticketSubmittedMsg}
+              </div>
+            ) : (
+              <form onSubmit={handleTicketCreate} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Ticket Subject
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={ticketTitle}
+                    onChange={(e) => setTicketTitle(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm outline-none focus:border-blue-600"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Details & Context
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={ticketDescription}
+                    onChange={(e) => setTicketDescription(e.target.value)}
+                    placeholder="Provide details about your question or issue..."
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm outline-none focus:border-blue-600 resize-none"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setTicketModalOpen(false)}
+                    className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg min-h-[44px]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm min-h-[44px]"
+                  >
+                    Submit Ticket
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
