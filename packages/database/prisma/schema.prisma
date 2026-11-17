@@ -155,6 +155,11 @@ model QueryLog {
   latencyMs        Int          @default(0)
   langsmithRunId   String?
   citations        Json?
+  isUnresolved     Boolean      @default(false)
+  gapCategory      String?
+  assignedTo       String?
+  resolvedAt       DateTime?
+  resolutionNote   String?
   createdAt        DateTime     @default(now())
 
   organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -162,6 +167,7 @@ model QueryLog {
   feedbacks        Feedback[]
 
   @@index([organizationId, createdAt])
+  @@index([organizationId, isUnresolved])
   @@map("query_logs")
 }
 

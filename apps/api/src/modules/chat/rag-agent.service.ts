@@ -12,6 +12,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { AgentToolsService } from './tools/agent-tools.service';
 import { ConversationsService } from './conversations.service';
+import { DataSanitizerService } from '../documents/services/data-sanitizer.service';
 import { ChatCompletionDto } from './dto/chat-completion.dto';
 
 @Injectable()
@@ -22,6 +23,7 @@ export class RagAgentService {
     private readonly prisma: PrismaService,
     private readonly agentToolsService: AgentToolsService,
     private readonly conversationsService?: ConversationsService,
+    private readonly dataSanitizer?: DataSanitizerService,
   ) {}
 
   private resolveChatModel(
@@ -108,10 +110,15 @@ export class RagAgentService {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders?.();
 
+    // 0. Sanitize user input message to prevent transmitting secrets or PII
+    const sanitizedUserMessage = this.dataSanitizer
+      ? this.dataSanitizer.sanitizeText(lastUserMessage)
+      : lastUserMessage;
+
     // 1. Retrieve relevant knowledge base citations
     const citations: DocumentCitation[] = await this.agentToolsService.searchKnowledgeBase(
       tenant,
-      lastUserMessage,
+      sanitizedUserMessage,
       4,
     );
 
@@ -122,9 +129,13 @@ export class RagAgentService {
 
     // 2. Format Context Prompt
     if (citations.length > 0) {
-      const contextBlocks = citations.map(
+      const rawContextBlocks = citations.map(
         (c, idx) => `[Source ${idx + 1}] (${c.documentTitle}):\n${c.snippet}`,
       ).join('\n\n');
+
+      const contextBlocks = this.dataSanitizer
+        ? this.dataSanitizer.sanitizeText(rawContextBlocks)
+        : rawContextBlocks;
 
       const systemPrompt = `You are the company's Smart Internal Knowledge Assistant.
 Answer the employee's inquiry strictly and accurately based on the internal documentation provided below.
@@ -140,7 +151,7 @@ ${contextBlocks}`;
         try {
           const stream = await chatModel.stream([
             new SystemMessage(systemPrompt),
-            new HumanMessage(lastUserMessage),
+            new HumanMessage(sanitizedUserMessage),
           ]);
 
           for await (const chunk of stream) {
@@ -151,16 +162,16 @@ ${contextBlocks}`;
         } catch (err: unknown) {
           const error = err as Error;
           this.logger.warn(`${activeProvider} streaming error: ${error.message}. Using synthetic response generator.`);
-          fullResponseText = this.generateSynthesizedAnswer(lastUserMessage, citations);
+          fullResponseText = this.generateSynthesizedAnswer(sanitizedUserMessage, citations);
           await this.streamSyntheticResponse(fullResponseText, res);
         }
       } else {
-        fullResponseText = this.generateSynthesizedAnswer(lastUserMessage, citations);
+        fullResponseText = this.generateSynthesizedAnswer(sanitizedUserMessage, citations);
         await this.streamSyntheticResponse(fullResponseText, res);
       }
     } else {
       // No citations found: Low confidence fallback with automatic tool assistance
-      const teamContact = await this.agentToolsService.lookupTeamContact(lastUserMessage);
+      const teamContact = await this.agentToolsService.lookupTeamContact(sanitizedUserMessage);
       fullResponseText = `I could not find direct information about "${lastUserMessage}" in your company's indexed documents.\n\n` +
         `For questions regarding this topic, you can contact **${teamContact.name}** (${teamContact.role}) at \`${teamContact.email}\` or Slack \`${teamContact.slackHandle}\`.\n\n` +
         `Would you like me to open an internal support ticket for this inquiry?`;
@@ -171,6 +182,41 @@ ${contextBlocks}`;
     const latencyMs = Date.now() - startTime;
     const promptTokens = Math.ceil(lastUserMessage.length / 4);
     const completionTokens = Math.ceil(fullResponseText.length / 4);
+
+    const isUnresolved = citations.length === 0;
+    let gapCategory: string | null = null;
+    if (isUnresolved) {
+      const lower = lastUserMessage.toLowerCase();
+      if (
+        lower.includes('leave') ||
+        lower.includes('benefit') ||
+        lower.includes('health') ||
+        lower.includes('holiday') ||
+        lower.includes('salary') ||
+        lower.includes('parental')
+      ) {
+        gapCategory = 'HR & Policies';
+      } else if (
+        lower.includes('vpn') ||
+        lower.includes('password') ||
+        lower.includes('laptop') ||
+        lower.includes('wifi') ||
+        lower.includes('slack')
+      ) {
+        gapCategory = 'IT & Infrastructure';
+      } else if (
+        lower.includes('aws') ||
+        lower.includes('deploy') ||
+        lower.includes('docker') ||
+        lower.includes('database') ||
+        lower.includes('grpc') ||
+        lower.includes('api')
+      ) {
+        gapCategory = 'Engineering Architecture';
+      } else {
+        gapCategory = 'General Company Operations';
+      }
+    }
 
     // 3. Persist turn to QueryLog for observability, analytics & user feedback
     const queryLog = await this.prisma.client.queryLog.create({
@@ -187,6 +233,8 @@ ${contextBlocks}`;
         totalTokens: promptTokens + completionTokens,
         latencyMs,
         citations: JSON.parse(JSON.stringify(citations)),
+        isUnresolved,
+        gapCategory,
       },
     });
 

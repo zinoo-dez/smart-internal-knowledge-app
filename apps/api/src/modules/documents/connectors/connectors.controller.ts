@@ -18,6 +18,7 @@ import { Roles } from '../../auth/decorators/roles.decorator';
 import { CurrentTenant } from '../../auth/decorators/tenant-context.decorator';
 import { NotionConnector, NotionSyncResult } from './notion.connector';
 import { SlackConnector, SlackWebhookResult } from './slack.connector';
+import { SyncSchedulerService } from '../services/sync-scheduler.service';
 
 @Controller('api/connectors')
 @UseGuards(ClerkAuthGuard, RolesGuard)
@@ -25,14 +26,25 @@ export class ConnectorsController {
   constructor(
     private readonly notionConnector: NotionConnector,
     private readonly slackConnector: SlackConnector,
+    private readonly syncScheduler: SyncSchedulerService,
   ) {}
 
   @Get('status')
-  async getStatus(): Promise<ConnectorStatusResponse> {
+  async getStatus(@CurrentTenant() tenant: TenantContext): Promise<ConnectorStatusResponse> {
+    const schedule = await this.syncScheduler.getScheduleStatus(tenant);
     return {
       notion: this.notionConnector.getStatus(),
       slack: this.slackConnector.getStatus(),
+      schedule,
     };
+  }
+
+  @Post('schedule/run-now')
+  @Roles(UserRole.ADMIN)
+  async triggerScheduledSync(
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<{ success: boolean; syncedCount: number; staleCount: number }> {
+    return this.syncScheduler.runScheduledSync(tenant);
   }
 
   @Post('notion/sync')

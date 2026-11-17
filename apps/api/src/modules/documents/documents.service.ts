@@ -17,6 +17,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { IngestionProcessor } from './workers/ingestion.processor';
 import { extractTextFromPdf } from './utils/pdf-parser';
+import { DataSanitizerService } from './services/data-sanitizer.service';
 
 @Injectable()
 export class DocumentsService {
@@ -25,6 +26,7 @@ export class DocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ingestionProcessor: IngestionProcessor,
+    private readonly dataSanitizer: DataSanitizerService,
   ) {}
 
   async createDocumentFromFile(
@@ -70,6 +72,7 @@ export class DocumentsService {
     });
 
     const jobId = `job-${document.id}`;
+    const sanitizedContent = this.dataSanitizer.sanitizeText(dto.content);
 
     // Execute ingestion asynchronously in background without blocking response
     setImmediate(async () => {
@@ -77,7 +80,7 @@ export class DocumentsService {
         await this.ingestionProcessor.processDocument({
           documentId: document.id,
           organizationId: tenant.organizationId,
-          content: dto.content,
+          content: sanitizedContent,
           department: dept,
         });
       } catch (err: unknown) {
@@ -105,19 +108,25 @@ export class DocumentsService {
       orderBy: { createdAt: 'desc' },
     });
 
-    return docs.map((doc) => ({
-      id: doc.id,
-      organizationId: doc.organizationId,
-      title: doc.title,
-      source: doc.source as unknown as DocumentSource,
-      department: doc.department as unknown as Department,
-      sourceUrl: doc.sourceUrl ?? undefined,
-      status: doc.status as unknown as IngestionStatus,
-      chunkCount: doc._count.chunks,
-      errorMessage: doc.errorMessage ?? undefined,
-      createdAt: doc.createdAt.toISOString(),
-      updatedAt: doc.updatedAt.toISOString(),
-    }));
+    return docs.map((doc) => {
+      const isStale = Date.now() - doc.updatedAt.getTime() > 180 * 24 * 60 * 60 * 1000;
+      const meta = doc.metadata as Record<string, unknown> | null;
+      return {
+        id: doc.id,
+        organizationId: doc.organizationId,
+        title: doc.title,
+        source: doc.source as unknown as DocumentSource,
+        department: doc.department as unknown as Department,
+        sourceUrl: doc.sourceUrl ?? undefined,
+        status: doc.status as unknown as IngestionStatus,
+        chunkCount: doc._count.chunks,
+        isStale,
+        lastSyncAt: meta?.lastSync ? String(meta.lastSync) : undefined,
+        errorMessage: doc.errorMessage ?? undefined,
+        createdAt: doc.createdAt.toISOString(),
+        updatedAt: doc.updatedAt.toISOString(),
+      };
+    });
   }
 
   async getDocument(tenant: TenantContext, id: string): Promise<DocumentSummary> {

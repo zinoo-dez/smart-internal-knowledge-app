@@ -112,4 +112,81 @@ describe('FeedbackService', () => {
     expect(summary.topQueries).toHaveLength(2);
     expect(summary.topQueries[0].query).toBe('VPN setup');
   });
+
+  it('should retrieve knowledge gaps with categorized summary', async () => {
+    mockPrisma.client.queryLog.findMany.mockResolvedValue([
+      {
+        id: 'gap-1',
+        query: 'What is our 2026 paternity leave duration?',
+        gapCategory: 'HR & Policies',
+        createdAt: new Date('2026-01-02T10:00:00Z'),
+        resolvedAt: null,
+        user: { email: 'alice@company.com' },
+      },
+      {
+        id: 'gap-2',
+        query: 'How to request static IP in VPC?',
+        gapCategory: 'Engineering Architecture',
+        createdAt: new Date('2026-01-02T11:00:00Z'),
+        resolvedAt: null,
+        user: { email: 'bob@company.com' },
+      },
+    ]);
+
+    const gapsRes = await service.getKnowledgeGaps(tenantA);
+    expect(gapsRes.totalGaps).toBe(2);
+    expect(gapsRes.topCategories).toHaveLength(2);
+    expect(gapsRes.gaps[0].query).toBe('What is our 2026 paternity leave duration?');
+    expect(gapsRes.gaps[0].category).toBe('HR & Policies');
+    expect(gapsRes.gaps[0].status).toBe('UNRESOLVED');
+  });
+
+  it('should resolve a knowledge gap with documentation note', async () => {
+    mockPrisma.client.queryLog.findFirst = vi.fn().mockResolvedValue({
+      id: 'gap-1',
+      organizationId: 'org-alpha',
+    });
+    mockPrisma.client.queryLog.update = vi.fn().mockResolvedValue({
+      id: 'gap-1',
+      isUnresolved: false,
+    });
+
+    const res = await service.resolveKnowledgeGap(
+      tenantA,
+      'gap-1',
+      'Authored 2026 Paternity policy in Notion and synced to KB',
+    );
+
+    expect(res.success).toBe(true);
+    expect(mockPrisma.client.queryLog.update).toHaveBeenCalledWith({
+      where: { id: 'gap-1' },
+      data: expect.objectContaining({
+        isUnresolved: false,
+        resolutionNote: 'Authored 2026 Paternity policy in Notion and synced to KB',
+      }),
+    });
+  });
+
+  it('should assign a knowledge gap to a department lead', async () => {
+    mockPrisma.client.queryLog.findFirst = vi.fn().mockResolvedValue({
+      id: 'gap-2',
+      organizationId: 'org-alpha',
+    });
+    mockPrisma.client.queryLog.update = vi.fn().mockResolvedValue({
+      id: 'gap-2',
+      assignedTo: 'sarah.lead@company.com',
+    });
+
+    const res = await service.assignKnowledgeGap(
+      tenantA,
+      'gap-2',
+      'sarah.lead@company.com',
+    );
+
+    expect(res.success).toBe(true);
+    expect(mockPrisma.client.queryLog.update).toHaveBeenCalledWith({
+      where: { id: 'gap-2' },
+      data: { assignedTo: 'sarah.lead@company.com' },
+    });
+  });
 });

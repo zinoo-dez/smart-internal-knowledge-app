@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   MessageSquare,
   Share2,
+  AlertTriangle,
+  Clock,
 } from 'lucide-react';
 import { ConnectorStatusResponse, Department, DocumentSource, DocumentSummary } from '@knowledge/shared';
 import { Column, DataTable } from '@/components/ui/data-table';
@@ -24,6 +26,7 @@ import {
   fetchDocuments,
   sendSlackWebhook,
   syncNotionPage,
+  triggerScheduledSync,
   uploadDocumentFile,
 } from '@/lib/api-client';
 
@@ -40,6 +43,7 @@ export default function DocumentsPage() {
   const [connectorStatus, setConnectorStatus] = useState<ConnectorStatusResponse | null>(null);
   const [isSyncingNotion, setIsSyncingNotion] = useState(false);
   const [isSyncingSlack, setIsSyncingSlack] = useState(false);
+  const [isTriggeringSync, setIsTriggeringSync] = useState(false);
   const [connectorNotice, setConnectorNotice] = useState<string | null>(null);
 
   // Form state
@@ -105,6 +109,22 @@ export default function DocumentsPage() {
     }
   };
 
+  const handleTriggerSchedule = async () => {
+    setIsTriggeringSync(true);
+    try {
+      const res = await triggerScheduledSync();
+      setConnectorNotice(
+        `Automated Sync Triggered: ${res.syncedCount} connectors synchronized (${res.staleCount} stale documents identified).`,
+      );
+      await loadData();
+      setTimeout(() => setConnectorNotice(null), 5000);
+    } catch (err) {
+      console.error('Failed to trigger scheduled sync:', err);
+    } finally {
+      setIsTriggeringSync(false);
+    }
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -156,7 +176,18 @@ export default function DocumentsPage() {
             <FileText className="w-4 h-4" />
           </div>
           <div>
-            <div className="font-semibold text-slate-900">{row.title}</div>
+            <div className="font-semibold text-slate-900 flex items-center gap-2">
+              <span>{row.title}</span>
+              {row.isStale && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 shrink-0"
+                  title="Document has not been synced or updated in over 180 days"
+                >
+                  <AlertTriangle className="w-3 h-3 text-amber-600" />
+                  Stale (&gt;180d)
+                </span>
+              )}
+            </div>
             {row.sourceUrl && (
               <a
                 href={row.sourceUrl}
@@ -247,6 +278,55 @@ export default function DocumentsPage() {
         <div className="flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm rounded-lg">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{connectorNotice}</span>
+        </div>
+      )}
+
+      {/* Automated Connector Cron Sync & Staleness Status Banner */}
+      {connectorStatus?.schedule && (
+        <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center shrink-0">
+              <Clock className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-sm text-slate-900">Automated Connector Cron Engine</span>
+                <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200">
+                  {connectorStatus.schedule.cronSchedule}
+                </span>
+                {connectorStatus.schedule.enabled && (
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Active
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Next scheduled sync:{' '}
+                <span className="font-medium text-slate-700">
+                  {connectorStatus.schedule.nextRunAt
+                    ? new Date(connectorStatus.schedule.nextRunAt).toLocaleString()
+                    : 'Pending trigger'}
+                </span>
+                {connectorStatus.schedule.lastRunAt && (
+                  <>
+                    {' '}· Last executed:{' '}
+                    <span className="font-medium text-slate-700">
+                      {new Date(connectorStatus.schedule.lastRunAt).toLocaleString()}
+                    </span>
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleTriggerSchedule}
+            disabled={isTriggeringSync}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-colors disabled:opacity-50 min-h-[40px] shrink-0"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isTriggeringSync ? 'animate-spin' : ''}`} />
+            <span>{isTriggeringSync ? 'Running Sync...' : 'Execute Nightly Sync Now'}</span>
+          </button>
         </div>
       )}
 

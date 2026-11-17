@@ -2,12 +2,16 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import {
   AnalyticsSummaryResponse,
+  AssignGapRequest,
+  KnowledgeGapSummaryResponse,
+  ResolveGapRequest,
   TenantContext,
   UserRole,
 } from '@knowledge/shared';
@@ -47,5 +51,33 @@ export class FeedbackController {
   ) {
     const parsedLimit = limit ? parseInt(limit, 10) : 20;
     return this.feedbackService.getRecentQueryLogs(tenant, parsedLimit);
+  }
+
+  @Get('knowledge-gaps')
+  @Roles(UserRole.ADMIN)
+  async getKnowledgeGaps(
+    @CurrentTenant() tenant: TenantContext,
+  ): Promise<KnowledgeGapSummaryResponse> {
+    return this.feedbackService.getKnowledgeGaps(tenant);
+  }
+
+  @Post('knowledge-gaps/:id/resolve')
+  @Roles(UserRole.ADMIN)
+  async resolveKnowledgeGap(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') id: string,
+    @Body() body: ResolveGapRequest,
+  ): Promise<{ success: boolean }> {
+    return this.feedbackService.resolveKnowledgeGap(tenant, id, body.resolutionNote);
+  }
+
+  @Post('knowledge-gaps/:id/assign')
+  @Roles(UserRole.ADMIN)
+  async assignKnowledgeGap(
+    @CurrentTenant() tenant: TenantContext,
+    @Param('id') id: string,
+    @Body() body: AssignGapRequest,
+  ): Promise<{ success: boolean }> {
+    return this.feedbackService.assignKnowledgeGap(tenant, id, body.assignedTo);
   }
 }

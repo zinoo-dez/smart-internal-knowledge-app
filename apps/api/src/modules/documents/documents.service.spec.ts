@@ -4,11 +4,13 @@ import { DocumentsService } from './documents.service';
 import { DocumentSource, IngestionStatus, TenantContext, UserRole } from '@knowledge/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { IngestionProcessor } from './workers/ingestion.processor';
+import { DataSanitizerService } from './services/data-sanitizer.service';
 
 describe('DocumentsService (CRUD & IDOR Security Audit)', () => {
   let service: DocumentsService;
   let mockPrisma: any;
   let mockProcessor: any;
+  let dataSanitizer: DataSanitizerService;
 
   const tenantA: TenantContext = {
     organizationId: 'org-alpha',
@@ -45,10 +47,12 @@ describe('DocumentsService (CRUD & IDOR Security Audit)', () => {
     mockProcessor = {
       processDocument: vi.fn().mockResolvedValue(undefined),
     };
+    dataSanitizer = new DataSanitizerService();
 
     service = new DocumentsService(
       mockPrisma as PrismaService,
       mockProcessor as IngestionProcessor,
+      dataSanitizer,
     );
   });
 
@@ -152,5 +156,31 @@ describe('DocumentsService (CRUD & IDOR Security Audit)', () => {
   it('should throw NotFoundException if document does not exist', async () => {
     mockPrisma.client.document.findUnique.mockResolvedValue(null);
     await expect(service.getDocument(tenantA, 'non-existent')).rejects.toThrow(NotFoundException);
+  });
+
+  it('should redact AWS keys and PII before queuing background ingestion (Pre-Ingest Guardrail)', async () => {
+    mockPrisma.client.document.create.mockResolvedValue({
+      id: 'doc-sensitive-101',
+      organizationId: 'org-alpha',
+      title: 'Cloud Credentials Runbook',
+      source: DocumentSource.FILE_UPLOAD,
+      status: IngestionStatus.PENDING,
+    });
+
+    await service.createDocument(tenantA, {
+      title: 'Cloud Credentials Runbook',
+      source: DocumentSource.FILE_UPLOAD,
+      content: 'Config: AWS_KEY=AKIAIOSFODNN7EXAMPLE and SSN=123-45-6789',
+    });
+
+    // Wait a tick for setImmediate background queue
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(mockProcessor.processDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId: 'doc-sensitive-101',
+        content: 'Config: AWS_KEY=[REDACTED_AWS_KEY] and SSN=[REDACTED_SSN]',
+      }),
+    );
   });
 });

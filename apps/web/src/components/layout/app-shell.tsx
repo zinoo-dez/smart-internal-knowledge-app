@@ -11,6 +11,7 @@ import {
   X,
   FileText,
   ShieldCheck,
+  AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -34,6 +35,12 @@ export function AppShell({ children }: AppShellProps) {
       href: '/admin/documents',
       icon: FileText,
       active: pathname.startsWith('/admin/documents'),
+    },
+    {
+      label: 'Knowledge Gaps',
+      href: '/admin/knowledge-gaps',
+      icon: AlertCircle,
+      active: pathname.startsWith('/admin/knowledge-gaps'),
     },
     {
       label: 'Usage & Analytics',

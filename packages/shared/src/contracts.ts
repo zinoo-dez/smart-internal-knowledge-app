@@ -36,6 +36,8 @@ export interface DocumentSummary {
   sourceUrl?: string;
   status: IngestionStatus;
   chunkCount: number;
+  isStale?: boolean;
+  lastSyncAt?: string;
   errorMessage?: string;
   createdAt: string;
   updatedAt: string;
@@ -123,6 +125,14 @@ export interface SlackWebhookPayload {
   department?: Department;
 }
 
+export interface ConnectorScheduleStatus {
+  enabled: boolean;
+  cronSchedule: string; // e.g. "0 2 * * *" (Daily at 2:00 AM)
+  lastRunAt?: string;
+  nextRunAt?: string;
+  staleDocumentsCount: number;
+}
+
 export interface ConnectorStatusResponse {
   notion: {
     status: 'CONNECTED' | 'DISCONNECTED';
@@ -135,6 +145,7 @@ export interface ConnectorStatusResponse {
     channelName?: string;
     syncedMessagesCount: number;
   };
+  schedule?: ConnectorScheduleStatus;
 }
 
 // Conversation Thread Contracts
@@ -159,4 +170,31 @@ export interface ConversationMessageItem {
 
 export interface ConversationDetail extends ConversationSummary {
   messages: ConversationMessageItem[];
+}
+
+// Knowledge Gap & Unanswered Queries Contracts
+export interface KnowledgeGapItem {
+  id: string;
+  query: string;
+  category: string;
+  frequency: number;
+  userEmail: string;
+  createdAt: string;
+  status: 'UNRESOLVED' | 'RESOLVED';
+  assignedTo?: string;
+  resolutionNote?: string;
+}
+
+export interface KnowledgeGapSummaryResponse {
+  totalGaps: number;
+  topCategories: { category: string; count: number }[];
+  gaps: KnowledgeGapItem[];
+}
+
+export interface ResolveGapRequest {
+  resolutionNote: string;
+}
+
+export interface AssignGapRequest {
+  assignedTo: string;
 }

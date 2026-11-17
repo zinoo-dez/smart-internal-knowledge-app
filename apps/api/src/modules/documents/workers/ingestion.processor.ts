@@ -3,6 +3,7 @@ import { Department, IngestionStatus } from '@knowledge/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmbeddingService } from '../services/embedding.service';
 import { RecursiveTextChunker } from '../utils/text-chunker';
+import { DataSanitizerService } from '../services/data-sanitizer.service';
 
 export interface IngestionJobData {
   documentId: string;
@@ -19,6 +20,7 @@ export class IngestionProcessor {
   constructor(
     private readonly prisma: PrismaService,
     private readonly embeddingService: EmbeddingService,
+    private readonly dataSanitizer: DataSanitizerService,
   ) {}
 
   async processDocument(data: IngestionJobData): Promise<void> {
@@ -32,13 +34,16 @@ export class IngestionProcessor {
         data: { status: IngestionStatus.PROCESSING },
       });
 
-      // 2. Chunk text
-      const chunks = this.chunker.splitText(content);
+      // 2. Sanitize any PII, credentials, or private keys prior to chunking & embedding
+      const sanitizedContent = this.dataSanitizer.sanitizeText(content);
+
+      // 3. Chunk sanitized text
+      const chunks = this.chunker.splitText(sanitizedContent);
       if (chunks.length === 0) {
         throw new Error('Document content is empty or unparsable');
       }
 
-      // 3. Generate embeddings
+      // 4. Generate embeddings
       const chunkTexts = chunks.map((c) => c.content);
       const embeddings = await this.embeddingService.embedDocuments(chunkTexts);
 

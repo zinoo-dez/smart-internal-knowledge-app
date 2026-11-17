@@ -10,6 +10,8 @@ import {
   FeedbackType,
   IngestDocumentRequest,
   IngestDocumentResponse,
+  KnowledgeGapItem,
+  KnowledgeGapSummaryResponse,
   NotionSyncRequest,
   SlackWebhookPayload,
   TicketStatus,
@@ -217,6 +219,19 @@ export async function sendSlackWebhook(
   return await res.json();
 }
 
+export async function triggerScheduledSync(): Promise<{
+  success: boolean;
+  syncedCount: number;
+  staleCount: number;
+}> {
+  const res = await fetch(`${API_BASE_URL}/api/connectors/schedule/run-now`, {
+    method: 'POST',
+    headers: DEFAULT_HEADERS,
+  });
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+
 export async function fetchConversations(): Promise<ConversationSummary[]> {
   try {
     const res = await fetch(`${API_BASE_URL}/api/chat/conversations`, {
@@ -263,6 +278,83 @@ export async function deleteConversation(id: string): Promise<{ success: boolean
   const res = await fetch(`${API_BASE_URL}/api/chat/conversations/${id}`, {
     method: 'DELETE',
     headers: DEFAULT_HEADERS,
+  });
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+
+export async function fetchKnowledgeGaps(): Promise<KnowledgeGapSummaryResponse> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/feedback/knowledge-gaps`, {
+      headers: DEFAULT_HEADERS,
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.warn('Backend gaps unavailable, using demo seed:', err);
+    return {
+      totalGaps: 3,
+      topCategories: [
+        { category: 'HR & Policies', count: 2 },
+        { category: 'Engineering Architecture', count: 1 },
+      ],
+      gaps: [
+        {
+          id: 'gap-seed-1',
+          query: 'What is our 2026 paternity leave duration and salary match?',
+          category: 'HR & Policies',
+          frequency: 5,
+          userEmail: 'dev.lead@company.internal',
+          createdAt: new Date().toISOString(),
+          status: 'UNRESOLVED',
+        },
+        {
+          id: 'gap-seed-2',
+          query: 'How to request dedicated static IP in us-east-1 VPC?',
+          category: 'Engineering Architecture',
+          frequency: 3,
+          userEmail: 'infra.eng@company.internal',
+          createdAt: new Date(Date.now() - 3600000).toISOString(),
+          status: 'UNRESOLVED',
+          assignedTo: 'sarah.infra@company.internal',
+        },
+        {
+          id: 'gap-seed-3',
+          query: 'Can we expense personal broadband bills while traveling?',
+          category: 'HR & Policies',
+          frequency: 2,
+          userEmail: 'contractor@company.internal',
+          createdAt: new Date(Date.now() - 7200000).toISOString(),
+          status: 'RESOLVED',
+          resolutionNote: 'Clarified in remote work expense handbook section 4.',
+        },
+      ],
+    };
+  }
+}
+
+export async function resolveKnowledgeGap(
+  gapId: string,
+  resolutionNote: string,
+): Promise<{ success: boolean }> {
+  const res = await fetch(`${API_BASE_URL}/api/feedback/knowledge-gaps/${gapId}/resolve`, {
+    method: 'POST',
+    headers: DEFAULT_HEADERS,
+    body: JSON.stringify({ resolutionNote }),
+  });
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+
+export async function assignKnowledgeGap(
+  gapId: string,
+  assignedTo: string,
+): Promise<{ success: boolean }> {
+  const res = await fetch(`${API_BASE_URL}/api/feedback/knowledge-gaps/${gapId}/assign`, {
+    method: 'POST',
+    headers: DEFAULT_HEADERS,
+    body: JSON.stringify({ assignedTo }),
   });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
   return await res.json();

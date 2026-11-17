@@ -10,9 +10,11 @@ import {
   UserRole,
 } from '@knowledge/shared';
 import { DocumentsService } from '../documents.service';
+import { SyncSchedulerService } from '../services/sync-scheduler.service';
 
 describe('Connectors (Notion & Slack SaaS Integrations)', () => {
   let documentsServiceMock: any;
+  let syncSchedulerMock: any;
   let notionConnector: NotionConnector;
   let slackConnector: SlackConnector;
   let controller: ConnectorsController;
@@ -34,9 +36,27 @@ describe('Connectors (Notion & Slack SaaS Integrations)', () => {
       }),
     };
 
+    syncSchedulerMock = {
+      getScheduleStatus: vi.fn().mockResolvedValue({
+        enabled: true,
+        cronSchedule: '0 2 * * *',
+        nextRunAt: '2026-01-02T02:00:00Z',
+        staleDocumentsCount: 2,
+      }),
+      runScheduledSync: vi.fn().mockResolvedValue({
+        success: true,
+        syncedCount: 3,
+        staleCount: 2,
+      }),
+    };
+
     notionConnector = new NotionConnector(documentsServiceMock as DocumentsService);
     slackConnector = new SlackConnector(documentsServiceMock as DocumentsService);
-    controller = new ConnectorsController(notionConnector, slackConnector);
+    controller = new ConnectorsController(
+      notionConnector,
+      slackConnector,
+      syncSchedulerMock as SyncSchedulerService,
+    );
   });
 
   describe('NotionConnector', () => {
@@ -109,12 +129,21 @@ describe('Connectors (Notion & Slack SaaS Integrations)', () => {
   });
 
   describe('ConnectorsController', () => {
-    it('should aggregate live status for all SaaS connectors', async () => {
-      const status = await controller.getStatus();
+    it('should aggregate live status for all SaaS connectors including cron schedule', async () => {
+      const status = await controller.getStatus(tenant);
 
       expect(status.notion.status).toBe('CONNECTED');
       expect(status.slack.status).toBe('CONNECTED');
       expect(status.slack.channelName).toBe('#engineering-announcements');
+      expect(status.schedule?.enabled).toBe(true);
+      expect(status.schedule?.staleDocumentsCount).toBe(2);
+    });
+
+    it('should trigger on-demand scheduled background sync', async () => {
+      const res = await controller.triggerScheduledSync(tenant);
+      expect(res.success).toBe(true);
+      expect(res.syncedCount).toBe(3);
+      expect(syncSchedulerMock.runScheduledSync).toHaveBeenCalledWith(tenant);
     });
 
     it('should route Notion sync endpoint properly', async () => {

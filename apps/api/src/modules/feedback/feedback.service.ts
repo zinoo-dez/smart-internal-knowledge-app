@@ -7,6 +7,8 @@ import {
 import {
   AnalyticsSummaryResponse,
   FeedbackType,
+  KnowledgeGapItem,
+  KnowledgeGapSummaryResponse,
   TenantContext,
 } from '@knowledge/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -99,5 +101,95 @@ export class FeedbackService {
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
+  }
+
+  async getKnowledgeGaps(tenant: TenantContext): Promise<KnowledgeGapSummaryResponse> {
+    const orgId = tenant.organizationId;
+    const unresolvedLogs = await this.prisma.client.queryLog.findMany({
+      where: {
+        organizationId: orgId,
+        isUnresolved: true,
+      },
+      include: {
+        user: { select: { email: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+
+    const categoryCounts: Record<string, number> = {};
+
+    const gaps: KnowledgeGapItem[] = unresolvedLogs.map((log) => {
+      const cat = log.gapCategory || 'General Knowledge';
+      categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+
+      return {
+        id: log.id,
+        query: log.query,
+        category: cat,
+        frequency: 1,
+        userEmail: log.user?.email || 'unknown@company.com',
+        createdAt: log.createdAt.toISOString(),
+        status: log.resolvedAt ? 'RESOLVED' : 'UNRESOLVED',
+        assignedTo: log.assignedTo ?? undefined,
+        resolutionNote: log.resolutionNote ?? undefined,
+      };
+    });
+
+    const topCategories = Object.entries(categoryCounts)
+      .map(([category, count]) => ({ category, count }))
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      totalGaps: gaps.length,
+      topCategories,
+      gaps,
+    };
+  }
+
+  async resolveKnowledgeGap(
+    tenant: TenantContext,
+    gapId: string,
+    resolutionNote: string,
+  ): Promise<{ success: boolean }> {
+    const log = await this.prisma.client.queryLog.findFirst({
+      where: { id: gapId, organizationId: tenant.organizationId },
+    });
+
+    if (!log) {
+      throw new NotFoundException(`Knowledge gap query ${gapId} not found`);
+    }
+
+    await this.prisma.client.queryLog.update({
+      where: { id: gapId },
+      data: {
+        isUnresolved: false,
+        resolvedAt: new Date(),
+        resolutionNote,
+      },
+    });
+
+    return { success: true };
+  }
+
+  async assignKnowledgeGap(
+    tenant: TenantContext,
+    gapId: string,
+    assignedTo: string,
+  ): Promise<{ success: boolean }> {
+    const log = await this.prisma.client.queryLog.findFirst({
+      where: { id: gapId, organizationId: tenant.organizationId },
+    });
+
+    if (!log) {
+      throw new NotFoundException(`Knowledge gap query ${gapId} not found`);
+    }
+
+    await this.prisma.client.queryLog.update({
+      where: { id: gapId },
+      data: { assignedTo },
+    });
+
+    return { success: true };
   }
 }
