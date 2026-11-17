@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  Department,
   DocumentSource,
   DocumentSummary,
   IngestDocumentResponse,
@@ -15,6 +16,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { IngestionProcessor } from './workers/ingestion.processor';
+import { extractTextFromPdf } from './utils/pdf-parser';
 
 @Injectable()
 export class DocumentsService {
@@ -25,15 +27,41 @@ export class DocumentsService {
     private readonly ingestionProcessor: IngestionProcessor,
   ) {}
 
+  async createDocumentFromFile(
+    tenant: TenantContext,
+    file: Express.Multer.File,
+    title?: string,
+    department: Department = Department.ALL,
+  ): Promise<IngestDocumentResponse> {
+    const docTitle = title || file.originalname || 'Uploaded Document';
+    let content = '';
+
+    if (file.mimetype === 'application/pdf' || file.originalname.endsWith('.pdf')) {
+      content = await extractTextFromPdf(file.buffer);
+    } else {
+      content = file.buffer.toString('utf-8');
+    }
+
+    return this.createDocument(tenant, {
+      title: docTitle,
+      source: DocumentSource.FILE_UPLOAD,
+      department,
+      content,
+      mimeType: file.mimetype,
+    });
+  }
+
   async createDocument(
     tenant: TenantContext,
     dto: CreateDocumentDto,
   ): Promise<IngestDocumentResponse> {
+    const dept = dto.department || Department.ALL;
     const document = await this.prisma.client.document.create({
       data: {
         organizationId: tenant.organizationId,
         title: dto.title,
         source: dto.source,
+        department: dept as any,
         sourceUrl: dto.sourceUrl,
         mimeType: dto.mimeType || 'text/plain',
         status: IngestionStatus.PENDING,
@@ -50,6 +78,7 @@ export class DocumentsService {
           documentId: document.id,
           organizationId: tenant.organizationId,
           content: dto.content,
+          department: dept,
         });
       } catch (err: unknown) {
         const error = err as Error;
@@ -81,6 +110,7 @@ export class DocumentsService {
       organizationId: doc.organizationId,
       title: doc.title,
       source: doc.source as unknown as DocumentSource,
+      department: doc.department as unknown as Department,
       sourceUrl: doc.sourceUrl ?? undefined,
       status: doc.status as unknown as IngestionStatus,
       chunkCount: doc._count.chunks,
@@ -114,6 +144,7 @@ export class DocumentsService {
       organizationId: doc.organizationId,
       title: doc.title,
       source: doc.source as unknown as DocumentSource,
+      department: doc.department as unknown as Department,
       sourceUrl: doc.sourceUrl ?? undefined,
       status: doc.status as unknown as IngestionStatus,
       chunkCount: doc._count.chunks,

@@ -1,5 +1,5 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
-import { DocumentSource, IngestDocumentRequest } from '@knowledge/shared';
+import { IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { Department, DocumentSource, IngestDocumentRequest } from '@knowledge/shared';
 
 export class CreateDocumentDto implements IngestDocumentRequest {
   @IsString()
@@ -8,6 +8,10 @@ export class CreateDocumentDto implements IngestDocumentRequest {
 
   @IsEnum(DocumentSource)
   source!: DocumentSource;
+
+  @IsOptional()
+  @IsEnum(Department)
+  department?: Department = Department.ALL;
 
   @IsString()
   @IsNotEmpty()

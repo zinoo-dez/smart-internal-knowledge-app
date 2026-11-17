@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { IngestionStatus } from '@knowledge/shared';
+import { Department, IngestionStatus } from '@knowledge/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmbeddingService } from '../services/embedding.service';
 import { RecursiveTextChunker } from '../utils/text-chunker';
@@ -8,6 +8,7 @@ export interface IngestionJobData {
   documentId: string;
   organizationId: string;
   content: string;
+  department?: Department;
 }
 
 @Injectable()
@@ -21,8 +22,8 @@ export class IngestionProcessor {
   ) {}
 
   async processDocument(data: IngestionJobData): Promise<void> {
-    const { documentId, organizationId, content } = data;
-    this.logger.log(`Starting ingestion processing for document ${documentId} (Org: ${organizationId})`);
+    const { documentId, organizationId, content, department = Department.ALL } = data;
+    this.logger.log(`Starting ingestion processing for document ${documentId} (Org: ${organizationId}, Dept: ${department})`);
 
     try {
       // 1. Set status to PROCESSING
@@ -46,19 +47,19 @@ export class IngestionProcessor {
         where: { documentId },
       });
 
-      // 5. Store chunks with embeddings into database
+      // 5. Store chunks with embeddings and department into database
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
         const vectorStr = `[${embeddings[i].join(',')}]`;
 
-        // Insert using SQL to cast vector string to pgvector vector(768) and tsvector
         await this.prisma.client.$executeRawUnsafe(
-          `INSERT INTO document_chunks (id, "documentId", "organizationId", "chunkIndex", content, embedding, tsv, "createdAt")
-           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5::vector, to_tsvector('english', $4), NOW())`,
+          `INSERT INTO document_chunks (id, "documentId", "organizationId", "chunkIndex", content, department, embedding, tsv, "createdAt")
+           VALUES (gen_random_uuid(), $1, $2, $3, $4, $5::"Department", $6::vector, to_tsvector('english', $4), NOW())`,
           documentId,
           organizationId,
           chunk.chunkIndex,
           chunk.content,
+          department,
           vectorStr,
         );
       }

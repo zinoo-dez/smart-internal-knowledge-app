@@ -123,4 +123,70 @@ describe('RagAgentService', () => {
     expect(reconstructed).toContain('IT Helpdesk');
     expect(res.end).toHaveBeenCalled();
   });
+
+  it('should dynamically route and record selected model provider (OPENAI / GPT-4o)', async () => {
+    mockTools.searchKnowledgeBase.mockResolvedValue([
+      {
+        chunkId: 'c-gpt',
+        documentId: 'd-gpt',
+        documentTitle: 'Engineering Architecture',
+        source: DocumentSource.NOTION,
+        snippet: 'Microservices communicate via gRPC and NATS streaming.',
+        relevanceScore: 0.95,
+      },
+    ]);
+
+    const { res } = createMockResponse();
+
+    await service.streamChat(
+      tenant,
+      {
+        messages: [{ role: 'user', content: 'What protocol is used for microservices?' }],
+        modelProvider: 'OPENAI',
+        modelName: 'gpt-4o',
+      },
+      res,
+    );
+
+    expect(mockPrisma.client.queryLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        modelProvider: 'OPENAI',
+        modelName: 'gpt-4o',
+      }),
+    });
+    expect(res.end).toHaveBeenCalled();
+  });
+
+  it('should dynamically route and record selected model provider (CLAUDE / Sonnet 3.5)', async () => {
+    mockTools.searchKnowledgeBase.mockResolvedValue([
+      {
+        chunkId: 'c-claude',
+        documentId: 'd-claude',
+        documentTitle: 'Security Whitepaper',
+        source: DocumentSource.FILE_UPLOAD,
+        snippet: 'All ingress traffic is terminated at Cloudflare edge with strict mTLS.',
+        relevanceScore: 0.99,
+      },
+    ]);
+
+    const { res } = createMockResponse();
+
+    await service.streamChat(
+      tenant,
+      {
+        messages: [{ role: 'user', content: 'How is ingress traffic secured?' }],
+        modelProvider: 'CLAUDE',
+        modelName: 'claude-3-5-sonnet-20241022',
+      },
+      res,
+    );
+
+    expect(mockPrisma.client.queryLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        modelProvider: 'CLAUDE',
+        modelName: 'claude-3-5-sonnet-20241022',
+      }),
+    });
+    expect(res.end).toHaveBeenCalled();
+  });
 });

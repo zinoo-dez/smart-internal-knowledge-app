@@ -1,3 +1,11 @@
+export enum Department {
+  ALL = 'ALL',
+  HR = 'HR',
+  ENGINEERING = 'ENGINEERING',
+  OPERATIONS = 'OPERATIONS',
+  EXECUTIVE = 'EXECUTIVE',
+}
+
 export enum UserRole {
   ADMIN = 'ADMIN',
   MEMBER = 'MEMBER',

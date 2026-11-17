@@ -1,12 +1,16 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
   Param,
   Post,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   DocumentSummary,
   IngestDocumentResponse,
@@ -24,6 +28,19 @@ import { CreateDocumentDto } from './dto/create-document.dto';
 @UseGuards(ClerkAuthGuard, RolesGuard)
 export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
+
+  @Post('upload/file')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadFile(
+    @CurrentTenant() tenant: TenantContext,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('title') title?: string,
+  ): Promise<IngestDocumentResponse> {
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
+    return this.documentsService.createDocumentFromFile(tenant, file, title);
+  }
 
   @Post()
   async createDocument(

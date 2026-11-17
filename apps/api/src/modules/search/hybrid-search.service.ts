@@ -1,9 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  Department,
   DocumentCitation,
   DocumentSource,
   SearchQueryResponse,
   TenantContext,
+  UserRole,
 } from '@knowledge/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmbeddingService } from '../documents/services/embedding.service';
@@ -35,13 +37,15 @@ export class HybridSearchService {
     const topK = dto.topK || 5;
     const minScore = dto.minScore || 0.0;
     const candidateLimit = Math.max(topK * 3, 20);
+    const userDept = tenant.department || Department.ALL;
+    const isAdmin = tenant.userRole === UserRole.ADMIN;
 
     // 1. Generate query embedding vector
     const queryVector = await this.embeddingService.embedText(dto.query);
     const vectorString = `[${queryVector.join(',')}]`;
 
     try {
-      // 2. Execute PostgreSQL Native Hybrid Search with Reciprocal Rank Fusion (RRF)
+      // 2. Execute PostgreSQL Native Hybrid Search with Reciprocal Rank Fusion (RRF) & Department ACLs
       const rawResults = await this.prisma.client.$queryRawUnsafe<RawSearchResult[]>(
         `WITH vector_matches AS (
            SELECT 
@@ -56,6 +60,7 @@ export class HybridSearchService {
            JOIN documents d ON d.id = c."documentId"
            WHERE c."organizationId" = $2
              AND c.embedding IS NOT NULL
+             AND (c.department = 'ALL' OR c.department::text = $6 OR $7 = true)
            ORDER BY c.embedding <=> $1::vector
            LIMIT $3
          ),
@@ -72,6 +77,7 @@ export class HybridSearchService {
            JOIN documents d ON d.id = c."documentId"
            WHERE c."organizationId" = $2
              AND (c.tsv @@ plainto_tsquery('english', $4) OR c.content ILIKE '%' || $4 || '%')
+             AND (c.department = 'ALL' OR c.department::text = $6 OR $7 = true)
            LIMIT $3
          )
          SELECT 
@@ -91,6 +97,8 @@ export class HybridSearchService {
         candidateLimit,
         dto.query,
         topK,
+        userDept,
+        isAdmin,
       );
 
       const citations: DocumentCitation[] = (rawResults || [])
@@ -110,11 +118,14 @@ export class HybridSearchService {
       const error = err as Error;
       this.logger.warn(`Native Postgres hybrid query fallback: ${error.message}`);
       
-      // Fallback query using Prisma relations if raw pgvector is still initializing
       const fallbackChunks = await this.prisma.client.documentChunk.findMany({
         where: {
           organizationId: tenant.organizationId,
           content: { contains: dto.query, mode: 'insensitive' },
+          OR: [
+            { department: 'ALL' as any },
+            { department: userDept as any },
+          ],
         },
         include: { document: true },
         take: topK,

@@ -13,6 +13,14 @@ enum UserRole {
   MEMBER
 }
 
+enum Department {
+  ALL
+  HR
+  ENGINEERING
+  OPERATIONS
+  EXECUTIVE
+}
+
 enum DocumentSource {
   FILE_UPLOAD
   NOTION
@@ -75,6 +83,7 @@ model User {
   email          String
   name           String?
   role           UserRole     @default(MEMBER)
+  department     Department   @default(ALL)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
@@ -93,6 +102,7 @@ model Document {
   organizationId String
   title          String
   source         DocumentSource  @default(FILE_UPLOAD)
+  department     Department      @default(ALL)
   sourceUrl      String?
   mimeType       String?
   status         IngestionStatus @default(PENDING)
@@ -114,6 +124,7 @@ model DocumentChunk {
   organizationId String
   chunkIndex     Int
   content        String
+  department     Department                  @default(ALL)
   embedding      Unsupported("vector(768)")? // Google Gemini text-embedding-004 dimension
   tsv            Unsupported("tsvector")?    // Full-text search keyword tsvector
   metadata       Json?

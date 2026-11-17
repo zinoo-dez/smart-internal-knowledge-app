@@ -67,7 +67,7 @@ describe('HybridSearchService (pgvector + tsvector RRF)', () => {
     expect(response.citations[0].chunkId).toBe('c1');
     expect(response.citations[0].relevanceScore).toBeCloseTo(0.0327, 4);
 
-    // Verify tenant organization ID was strictly passed to SQL
+    // Verify tenant organization ID and department ACLs were strictly passed to SQL
     expect(mockPrisma.client.$queryRawUnsafe).toHaveBeenCalledWith(
       expect.stringContaining('WITH vector_matches AS'),
       expect.any(String), // vector string
@@ -75,6 +75,64 @@ describe('HybridSearchService (pgvector + tsvector RRF)', () => {
       expect.any(Number), // candidateLimit
       'how to setup VPN', // query
       2,                  // topK
+      'ALL',              // userDept
+      false,              // isAdmin
+    );
+  });
+
+  it('should enforce department ACL isolation for engineering employees', async () => {
+    const engineeringTenant: TenantContext = {
+      organizationId: 'org-test-77',
+      userId: 'eng-01',
+      userRole: UserRole.MEMBER,
+      userEmail: 'alice@eng.company.com',
+      department: 'ENGINEERING' as any,
+    };
+
+    mockPrisma.client.$queryRawUnsafe.mockResolvedValue([]);
+
+    await service.search(engineeringTenant, {
+      query: 'compensation benchmarks',
+      topK: 3,
+    });
+
+    expect(mockPrisma.client.$queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('(c.department = \'ALL\' OR c.department::text = $6 OR $7 = true)'),
+      expect.any(String),
+      'org-test-77',
+      expect.any(Number),
+      'compensation benchmarks',
+      3,
+      'ENGINEERING', // user department passed strictly
+      false,         // member is not admin
+    );
+  });
+
+  it('should grant cross-department bypass for ADMIN users', async () => {
+    const adminTenant: TenantContext = {
+      organizationId: 'org-test-77',
+      userId: 'admin-01',
+      userRole: UserRole.ADMIN,
+      userEmail: 'boss@company.com',
+      department: 'EXECUTIVE' as any,
+    };
+
+    mockPrisma.client.$queryRawUnsafe.mockResolvedValue([]);
+
+    await service.search(adminTenant, {
+      query: 'confidential report',
+      topK: 5,
+    });
+
+    expect(mockPrisma.client.$queryRawUnsafe).toHaveBeenCalledWith(
+      expect.stringContaining('WITH vector_matches AS'),
+      expect.any(String),
+      'org-test-77',
+      expect.any(Number),
+      'confidential report',
+      5,
+      'EXECUTIVE',
+      true, // isAdmin bypass is true
     );
   });
 

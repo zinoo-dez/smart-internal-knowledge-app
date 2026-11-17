@@ -77,6 +77,38 @@ describe('DocumentsService (CRUD & IDOR Security Audit)', () => {
     });
   });
 
+  it('should parse binary file and ingest document with createDocumentFromFile', async () => {
+    mockPrisma.client.document.create.mockResolvedValue({
+      id: 'doc-pdf-1',
+      organizationId: 'org-alpha',
+      title: 'Company_Policy.pdf',
+      source: DocumentSource.FILE_UPLOAD,
+      status: IngestionStatus.PENDING,
+    });
+
+    const mockFile: Express.Multer.File = {
+      fieldname: 'file',
+      originalname: 'Company_Policy.pdf',
+      encoding: '7bit',
+      mimetype: 'application/pdf',
+      size: 1024,
+      buffer: Buffer.from('%PDF-1.4 Mock PDF content with company policy rules'),
+      destination: '',
+      filename: '',
+      path: '',
+      stream: null as any,
+    };
+
+    const result = await service.createDocumentFromFile(tenantA, mockFile);
+    expect(result.documentId).toBe('doc-pdf-1');
+    expect(mockPrisma.client.document.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        title: 'Company_Policy.pdf',
+        mimeType: 'application/pdf',
+      }),
+    });
+  });
+
   it('should BLOCK IDOR when user from Org B attempts to read document belonging to Org A', async () => {
     mockPrisma.client.document.findUnique.mockResolvedValue({
       id: 'doc-alpha-secret',

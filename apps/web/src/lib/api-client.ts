@@ -1,11 +1,15 @@
 import {
   AnalyticsSummaryResponse,
+  ConnectorStatusResponse,
   CreateTicketParams,
+  Department,
   DocumentSource,
   DocumentSummary,
   FeedbackType,
   IngestDocumentRequest,
   IngestDocumentResponse,
+  NotionSyncRequest,
+  SlackWebhookPayload,
   TicketStatus,
 } from '@knowledge/shared';
 
@@ -35,6 +39,7 @@ export async function fetchDocuments(): Promise<DocumentSummary[]> {
         organizationId: 'mock-org-default',
         title: 'Company Remote Work & VPN Setup Handbook',
         source: DocumentSource.FILE_UPLOAD,
+        department: Department.ALL,
         status: 'INDEXED' as any,
         chunkCount: 14,
         createdAt: new Date().toISOString(),
@@ -45,6 +50,7 @@ export async function fetchDocuments(): Promise<DocumentSummary[]> {
         organizationId: 'mock-org-default',
         title: 'Engineering Onboarding & AWS Architecture',
         source: DocumentSource.NOTION,
+        department: Department.ENGINEERING,
         sourceUrl: 'https://notion.so/engineering/architecture',
         status: 'INDEXED' as any,
         chunkCount: 22,
@@ -56,6 +62,7 @@ export async function fetchDocuments(): Promise<DocumentSummary[]> {
         organizationId: 'mock-org-default',
         title: 'HR Employee Benefits & Health Insurance 2026',
         source: DocumentSource.GOOGLE_DRIVE,
+        department: Department.HR,
         status: 'INDEXED' as any,
         chunkCount: 9,
         createdAt: new Date().toISOString(),
@@ -74,6 +81,28 @@ export async function createDocument(
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+
+export async function uploadDocumentFile(
+  file: File,
+  title?: string,
+): Promise<IngestDocumentResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (title) formData.append('title', title);
+
+  const res = await fetch(`${API_BASE_URL}/api/documents/upload/file`, {
+    method: 'POST',
+    headers: {
+      'x-mock-user-id': 'dev-admin-01',
+      'x-mock-org-id': 'mock-org-default',
+      'x-mock-role': 'ADMIN',
+      'x-mock-email': 'admin@company.internal',
+    },
+    body: formData,
+  });
+  if (!res.ok) throw new Error(`File upload failed: HTTP ${res.status}`);
   return await res.json();
 }
 
@@ -131,6 +160,56 @@ export async function createSupportTicket(
     method: 'POST',
     headers: DEFAULT_HEADERS,
     body: JSON.stringify(params),
+  });
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+
+export async function fetchConnectorStatus(): Promise<ConnectorStatusResponse> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/connectors/status`, {
+      headers: DEFAULT_HEADERS,
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.warn('Backend connectors status unavailable, using fallback:', err);
+    return {
+      notion: {
+        status: 'CONNECTED',
+        lastSync: new Date().toISOString(),
+        syncedPagesCount: 4,
+      },
+      slack: {
+        status: 'CONNECTED',
+        lastSync: new Date().toISOString(),
+        channelName: '#engineering-announcements',
+        syncedMessagesCount: 12,
+      },
+    };
+  }
+}
+
+export async function syncNotionPage(
+  data: NotionSyncRequest,
+): Promise<{ success: boolean; documentId: string; title: string; message: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/connectors/notion/sync`, {
+    method: 'POST',
+    headers: DEFAULT_HEADERS,
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
+}
+
+export async function sendSlackWebhook(
+  data: SlackWebhookPayload,
+): Promise<{ ok: boolean; documentId?: string; message: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/connectors/slack/webhook`, {
+    method: 'POST',
+    headers: DEFAULT_HEADERS,
+    body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
   return await res.json();

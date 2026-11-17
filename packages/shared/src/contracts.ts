@@ -1,4 +1,4 @@
-import { DocumentSource, FeedbackType, IngestionStatus, TicketStatus, UserRole } from './enums';
+import { Department, DocumentSource, FeedbackType, IngestionStatus, TicketStatus, UserRole } from './enums';
 
 // Auth & Tenant Context
 export interface TenantContext {
@@ -6,12 +6,14 @@ export interface TenantContext {
   userId: string;
   userRole: UserRole;
   userEmail: string;
+  department?: Department;
 }
 
 // Ingestion Contracts
 export interface IngestDocumentRequest {
   title: string;
   source: DocumentSource;
+  department?: Department;
   sourceUrl?: string;
   content?: string;
   mimeType?: string;
@@ -30,6 +32,7 @@ export interface DocumentSummary {
   organizationId: string;
   title: string;
   source: DocumentSource;
+  department: Department;
   sourceUrl?: string;
   status: IngestionStatus;
   chunkCount: number;
@@ -101,4 +104,35 @@ export interface AnalyticsSummaryResponse {
   totalTokensUsed: number;
   satisfactionRate: number; // percentage
   topQueries: { query: string; count: number }[];
+}
+
+// Connector Contracts
+export interface NotionSyncRequest {
+  databaseId?: string;
+  pageTitle?: string;
+  content?: string;
+  department?: Department;
+}
+
+export interface SlackWebhookPayload {
+  type?: string;
+  challenge?: string;
+  channel?: string;
+  text?: string;
+  user?: string;
+  department?: Department;
+}
+
+export interface ConnectorStatusResponse {
+  notion: {
+    status: 'CONNECTED' | 'DISCONNECTED';
+    lastSync?: string;
+    syncedPagesCount: number;
+  };
+  slack: {
+    status: 'CONNECTED' | 'DISCONNECTED';
+    lastSync?: string;
+    channelName?: string;
+    syncedMessagesCount: number;
+  };
 }
