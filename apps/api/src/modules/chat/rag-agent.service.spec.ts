@@ -349,5 +349,32 @@ describe('RagAgentService', () => {
       expect(systemPrompt).toContain('ကုမ္ပဏီမှတ်တမ်းများတွင် ဤအကြောင်းအရာနှင့်ပတ်သက်သော အချက်အလက်များ မတွေ့ရှိပါ။');
       expect(systemPrompt).toContain('<example id="3" scenario="Myanmar Language Inquiry Grounded in English Documentation">');
     });
+
+    it('should validate and parse structured output conforming to AgentAnswerSchema', () => {
+      const citations = [
+        {
+          chunkId: 'c1',
+          documentId: 'd1',
+          documentTitle: 'VPN Guide',
+          source: DocumentSource.FILE_UPLOAD,
+          snippet: 'Connect to port 51820',
+          relevanceScore: 0.95,
+        },
+      ];
+
+      const result = service.parseStructuredAnswer('Use WireGuard client [1]', citations);
+      expect(result.answer).toBe('Use WireGuard client [1]');
+      expect(result.citations).toHaveLength(1);
+      expect(result.citations[0].documentTitle).toBe('VPN Guide');
+      expect(result.confidenceScore).toBe(0.95);
+      expect(result.requiresHumanEscalation).toBe(false);
+      expect(result.escalationDepartment).toBe('NONE');
+    });
+
+    it('should fall back gracefully when all circuit breaker providers fail', async () => {
+      const result = await service.invokeWithCircuitBreaker('System', 'User', 'UNKNOWN_PROVIDER');
+      expect(result.providerUsed).toBe('FALLBACK');
+      expect(result.modelUsed).toBe('deterministic-synthesizer');
+    });
   });
 });

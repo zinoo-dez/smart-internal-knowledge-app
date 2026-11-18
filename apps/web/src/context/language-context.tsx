@@ -14,10 +14,22 @@ interface Translations {
   navKnowledgeGaps: string;
   navAnalytics: string;
   navAuditLogs: string;
+  navBilling: string;
   navDocs: string;
   multiTenantActive: string;
   roleAdmin: string;
   languageLabel: string;
+
+  // Billing & Quotas Dashboard
+  billingTitle: string;
+  billingSubtitle: string;
+  currentPlan: string;
+  billingCycle: string;
+  tokenUsage: string;
+  queryUsage: string;
+  docUsage: string;
+  upgradePlan: string;
+  activeTier: string;
 
   // Documentation Web Hub
   docsTitle: string;
@@ -72,10 +84,22 @@ const TRANSLATIONS: Record<Language, Translations> = {
     navKnowledgeGaps: 'Knowledge Gaps',
     navAnalytics: 'Usage & Analytics',
     navAuditLogs: 'Audit & Compliance',
+    navBilling: 'Plans & Billing',
     navDocs: 'Help & Guides',
     multiTenantActive: 'Multi-Tenant Active',
     roleAdmin: 'Role: ADMIN',
     languageLabel: 'Language',
+
+    billingTitle: 'Subscription & Usage Quotas',
+    billingSubtitle:
+      'Manage enterprise subscription tiers, monitor monthly token budgets, and upgrade quotas.',
+    currentPlan: 'Current Plan',
+    billingCycle: 'Billing Cycle',
+    tokenUsage: 'Monthly Token Usage',
+    queryUsage: 'Monthly Queries',
+    docUsage: 'Indexed Documents',
+    upgradePlan: 'Upgrade Plan',
+    activeTier: 'Active',
 
     docsTitle: 'Help Center & Documentation',
     docsSubtitle: 'Zero-knowledge user guides, workflow walkthroughs, and legal compliance policies.',
@@ -127,10 +151,22 @@ const TRANSLATIONS: Record<Language, Translations> = {
     navKnowledgeGaps: 'မေးခွန်းလိုအပ်ချက်များ',
     navAnalytics: 'အသုံးပြုမှုနှင့် သုံးသပ်ချက်',
     navAuditLogs: 'လုံခြုံရေးနှင့် စစ်ဆေးမှု',
+    navBilling: 'အစီအစဉ်နှင့် ငွေပေးချေမှု',
     navDocs: 'အကူအညီနှင့် လမ်းညွှန်',
     multiTenantActive: 'လုပ်ငန်းစနစ် လည်ပတ်နေသည်',
     roleAdmin: 'ရာထူး: အက်ဒမင်',
     languageLabel: 'ဘာသာစကား',
+
+    billingTitle: 'စာရင်းသွင်းမှုနှင့် အသုံးပြုမှု ကန့်သတ်ချက်များ',
+    billingSubtitle:
+      'လုပ်ငန်းသုံး အစီအစဉ်များ၊ လစဉ် Token စားသုံးမှုနှင့် ကန့်သတ်ချက်များကို စီမံခန့်ခွဲပါ။',
+    currentPlan: 'လက်ရှိ အစီအစဉ်',
+    billingCycle: 'ငွေပေးချေမှု ကာလ',
+    tokenUsage: 'လစဉ် Token အသုံးပြုမှု',
+    queryUsage: 'လစဉ် မေးမြန်းမှု အရေအတွက်',
+    docUsage: 'ထည့်သွင်းထားသော မှတ်တမ်းများ',
+    upgradePlan: 'အစီအစဉ် အဆင့်မြှင့်မည်',
+    activeTier: 'လက်ရှိသုံးနေသည်',
 
     docsTitle: 'အကူအညီနှင့် လမ်းညွှန်မှတ်တမ်းများ',
     docsSubtitle: 'အသုံးပြုနည်း လမ်းညွှန်များ၊ အဆင့်ဆင့် လိုက်နာဆောင်ရွက်ပုံများနှင့် ဥပဒေရေးရာ မူဝါဒများ။',

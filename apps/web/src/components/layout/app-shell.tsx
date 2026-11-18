@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   AlertCircle,
   HelpCircle,
+  CreditCard,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/context/language-context';
@@ -57,6 +58,12 @@ export function AppShell({ children }: AppShellProps) {
       href: '/admin/audit-logs',
       icon: ShieldCheck,
       active: pathname.startsWith('/admin/audit-logs'),
+    },
+    {
+      label: t.navBilling,
+      href: '/admin/billing',
+      icon: CreditCard,
+      active: pathname.startsWith('/admin/billing'),
     },
     {
       label: t.navDocs,

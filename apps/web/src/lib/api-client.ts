@@ -18,6 +18,8 @@ import {
   QueryAuditLogsParams,
   SlackWebhookPayload,
   TicketStatus,
+  TenantUsageSummary,
+  SubscriptionTier,
 } from '@knowledge/shared';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
@@ -442,5 +444,45 @@ export function getExportAuditLogsUrl(params?: QueryAuditLogsParams): string {
   if (params?.startDate) query.set('startDate', params.startDate);
   if (params?.endDate) query.set('endDate', params.endDate);
   return `${API_BASE_URL}/api/admin/audit-logs/export?${query.toString()}`;
+}
+
+export async function fetchBillingUsage(): Promise<TenantUsageSummary> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/billing/usage`, {
+      headers: DEFAULT_HEADERS,
+      cache: 'no-store',
+    });
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.warn('Backend billing unavailable, using initial demo metrics:', err);
+    return {
+      organizationId: 'mock-org-default',
+      tier: SubscriptionTier.PRO,
+      currentPeriodStart: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString(),
+      currentPeriodEnd: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString(),
+      queryCount: 42,
+      queryLimit: 2500,
+      queryUsagePercent: 2,
+      tokenCount: 68420,
+      tokenLimit: 5000000,
+      tokenUsagePercent: 1,
+      documentCount: 4,
+      documentLimit: 100,
+      isQuotaExceeded: false,
+    };
+  }
+}
+
+export async function upgradeSubscription(
+  tier: SubscriptionTier,
+): Promise<{ success: boolean; message: string; tier: SubscriptionTier }> {
+  const res = await fetch(`${API_BASE_URL}/api/billing/upgrade`, {
+    method: 'POST',
+    headers: DEFAULT_HEADERS,
+    body: JSON.stringify({ tier }),
+  });
+  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+  return await res.json();
 }
 

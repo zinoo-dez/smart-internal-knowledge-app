@@ -5,6 +5,8 @@ import { ChatOpenAI } from '@langchain/openai';
 import { ChatAnthropic } from '@langchain/anthropic';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import {
+  AgentAnswer,
+  AgentAnswerSchema,
   AIModelProvider,
   DocumentCitation,
   TenantContext,
@@ -174,6 +176,87 @@ Would you like me to open an internal support ticket with HR & Workplace Operati
   }
 
   /**
+   * Multi-Model Circuit Breaker: Attempts execution on preferred provider,
+   * failing over across Gemini, Claude, and OpenAI if rate limits or errors occur.
+   */
+  public async invokeWithCircuitBreaker(
+    systemPrompt: string,
+    userPrompt: string,
+    preferredProvider?: string,
+    preferredModel?: string,
+  ): Promise<{ content: string; providerUsed: string; modelUsed: string }> {
+    const fallbackChain: string[] = [
+      AIModelProvider.GEMINI,
+      AIModelProvider.CLAUDE,
+      AIModelProvider.OPENAI,
+    ];
+
+    const cleanPreferred = (preferredProvider || AIModelProvider.GEMINI).toUpperCase();
+    const orderedProviders = [
+      cleanPreferred,
+      ...fallbackChain.filter((p) => p !== cleanPreferred),
+    ];
+
+    for (const provider of orderedProviders) {
+      const { model, provider: activeProvider, modelName: activeModel } =
+        this.resolveChatModel(provider, provider === cleanPreferred ? preferredModel : undefined);
+
+      if (model) {
+        try {
+          const response = await model.invoke([
+            new SystemMessage(systemPrompt),
+            new HumanMessage(userPrompt),
+          ]);
+          const content = response.content?.toString() || '';
+          if (content.trim().length > 0) {
+            return { content, providerUsed: activeProvider, modelUsed: activeModel };
+          }
+        } catch (err: unknown) {
+          const error = err as Error;
+          this.logger.warn(
+            `Circuit breaker: ${activeProvider} invocation failed (${error.message}). Failing over to next provider.`,
+          );
+        }
+      }
+    }
+
+    return { content: '', providerUsed: 'FALLBACK', modelUsed: 'deterministic-synthesizer' };
+  }
+
+  /**
+   * Validates and returns structured output compliant with AgentAnswerSchema.
+   */
+  public parseStructuredAnswer(
+    rawText: string,
+    citations: DocumentCitation[],
+  ): AgentAnswer {
+    try {
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return AgentAnswerSchema.parse(parsed);
+      }
+    } catch {
+      // Fall through to structured schema wrapper
+    }
+
+    const isUnresolved = citations.length === 0;
+    return AgentAnswerSchema.parse({
+      answer: rawText,
+      citations: citations.map((c, idx) => ({
+        sourceId: `source-${idx + 1}`,
+        documentTitle: c.documentTitle,
+        chunkId: c.chunkId,
+        snippet: c.snippet,
+        relevanceScore: c.relevanceScore,
+      })),
+      confidenceScore: isUnresolved ? 0.3 : 0.95,
+      requiresHumanEscalation: isUnresolved,
+      escalationDepartment: isUnresolved ? 'IT' : 'NONE',
+    });
+  }
+
+  /**
    * Assembles the full system prompt by injecting dynamic sanitized context chunks
    * inside the designated XML container while keeping static rules cache-aligned.
    */
@@ -316,18 +399,15 @@ Standalone Search Query:`;
       const systemPrompt = this.buildSystemPrompt(contextBlocks);
       const userPrompt = `<user_query>\n${sanitizedUserMessage}\n</user_query>`;
 
-      if (chatModel) {
-        try {
-          const response = await chatModel.invoke([
-            new SystemMessage(systemPrompt),
-            new HumanMessage(userPrompt),
-          ]);
-          answerText = response.content?.toString() || '';
-        } catch (err: unknown) {
-          const error = err as Error;
-          this.logger.warn(`${activeProvider} invoke error: ${error.message}. Using synthetic fallback.`);
-          answerText = this.generateSynthesizedAnswer(sanitizedUserMessage, citations);
-        }
+      const { content: invokedContent } = await this.invokeWithCircuitBreaker(
+        systemPrompt,
+        userPrompt,
+        modelProvider,
+        modelName,
+      );
+
+      if (invokedContent) {
+        answerText = invokedContent;
       } else {
         answerText = this.generateSynthesizedAnswer(sanitizedUserMessage, citations);
       }
