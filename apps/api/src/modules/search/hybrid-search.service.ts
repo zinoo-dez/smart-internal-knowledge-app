@@ -128,30 +128,35 @@ export class HybridSearchService {
       const error = err as Error;
       this.logger.warn(`Native Postgres hybrid query fallback: ${error.message}`);
       
-      const fallbackChunks = await this.prisma.client.documentChunk.findMany({
-        where: {
-          organizationId: tenant.organizationId,
-          content: { contains: dto.query, mode: 'insensitive' },
-          OR: [
-            { department: 'ALL' as any },
-            { department: userDept as any },
-          ],
-        },
-        include: { document: true },
-        take: topK,
-      });
+      try {
+        const fallbackChunks = await this.prisma.client.documentChunk.findMany({
+          where: {
+            organizationId: tenant.organizationId,
+            content: { contains: dto.query, mode: 'insensitive' },
+            OR: [
+              { department: 'ALL' as any },
+              { department: userDept as any },
+            ],
+          },
+          include: { document: true },
+          take: topK,
+        });
 
-      const citations: DocumentCitation[] = fallbackChunks.map((c) => ({
-        chunkId: c.id,
-        documentId: c.documentId,
-        documentTitle: c.document.title,
-        source: c.document.source as unknown as DocumentSource,
-        sourceUrl: c.document.sourceUrl ?? undefined,
-        snippet: c.content,
-        relevanceScore: 0.85,
-      }));
+        const citations: DocumentCitation[] = fallbackChunks.map((c) => ({
+          chunkId: c.id,
+          documentId: c.documentId,
+          documentTitle: c.document.title,
+          source: c.document.source as unknown as DocumentSource,
+          sourceUrl: c.document.sourceUrl ?? undefined,
+          snippet: c.content,
+          relevanceScore: 0.85,
+        }));
 
-      return { citations };
+        return { citations };
+      } catch (fallbackErr) {
+        this.logger.debug(`Prisma fallbackChunks offline: ${(fallbackErr as Error).message}`);
+        return { citations: [] };
+      }
     }
   }
 }

@@ -17,6 +17,15 @@ export class GlobalExceptionsFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
+    if (response.headersSent) {
+      this.logger.warn(
+        `Exception occurred after headers were sent at ${request.method} ${request.url}: ${
+          (exception as any)?.stack || (exception as any)?.message
+        }`,
+      );
+      return;
+    }
+
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message: string | object = 'Internal server error';
 

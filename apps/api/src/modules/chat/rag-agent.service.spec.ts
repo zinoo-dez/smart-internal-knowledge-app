@@ -376,5 +376,26 @@ describe('RagAgentService', () => {
       expect(result.providerUsed).toBe('FALLBACK');
       expect(result.modelUsed).toBe('deterministic-synthesizer');
     });
+
+    it('should inject <available_mcp_tools> into buildSystemPrompt when active MCP tools are provided', () => {
+      const activeTools = [
+        {
+          id: 't-1',
+          serverId: 's-1',
+          name: 'postgres_run_query',
+          description: 'Execute SQL queries',
+          inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
+          isEnabled: true,
+          requireApproval: false,
+          createdAt: new Date().toISOString(),
+        },
+      ];
+
+      const prompt = service.buildSystemPrompt('Sample context blocks', activeTools);
+      expect(prompt).toContain('<available_mcp_tools>');
+      expect(prompt).toContain('name="postgres_run_query"');
+      expect(prompt).toContain('requires_approval="false"');
+      expect(prompt).toContain('<parameters_schema>');
+    });
   });
 });

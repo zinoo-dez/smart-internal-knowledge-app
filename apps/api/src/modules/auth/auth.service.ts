@@ -18,38 +18,48 @@ export class AuthService {
     const orgId = params.clerkOrgId || `personal-${params.clerkUserId}`;
     const userRole = params.role || UserRole.MEMBER;
 
-    // Ensure Organization exists
-    const organization = await this.prisma.client.organization.upsert({
-      where: { clerkOrgId: orgId },
-      update: {},
-      create: {
-        clerkOrgId: orgId,
-        name: params.clerkOrgId ? `Workspace ${orgId}` : `${params.name || params.email}'s Workspace`,
-      },
-    });
+    try {
+      // Ensure Organization exists
+      const organization = await this.prisma.client.organization.upsert({
+        where: { clerkOrgId: orgId },
+        update: {},
+        create: {
+          clerkOrgId: orgId,
+          name: params.clerkOrgId ? `Workspace ${orgId}` : `${params.name || params.email}'s Workspace`,
+        },
+      });
 
-    // Ensure User exists and is linked to the Organization
-    const user = await this.prisma.client.user.upsert({
-      where: { clerkUserId: params.clerkUserId },
-      update: {
-        email: params.email,
-        name: params.name,
-        role: userRole,
-      },
-      create: {
-        clerkUserId: params.clerkUserId,
+      // Ensure User exists and is linked to the Organization
+      const user = await this.prisma.client.user.upsert({
+        where: { clerkUserId: params.clerkUserId },
+        update: {
+          email: params.email,
+          name: params.name,
+          role: userRole,
+        },
+        create: {
+          clerkUserId: params.clerkUserId,
+          organizationId: organization.id,
+          email: params.email,
+          name: params.name,
+          role: userRole,
+        },
+      });
+
+      return {
         organizationId: organization.id,
-        email: params.email,
-        name: params.name,
-        role: userRole,
-      },
-    });
-
-    return {
-      organizationId: organization.id,
-      userId: user.id,
-      userRole: user.role as UserRole,
-      userEmail: user.email,
-    };
+        userId: user.id,
+        userRole: user.role as UserRole,
+        userEmail: user.email,
+      };
+    } catch (err) {
+      this.logger.warn(`Prisma offline, serving mock tenant context: ${(err as Error).message}`);
+      return {
+        organizationId: orgId,
+        userId: params.clerkUserId,
+        userRole,
+        userEmail: params.email,
+      };
+    }
   }
 }

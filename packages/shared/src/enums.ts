@@ -64,3 +64,15 @@ export enum AuditAction {
   ACL_UPDATED = 'ACL_UPDATED',
 }
 
+export enum McpTransport {
+  SSE = 'SSE',
+  STDIO = 'STDIO',
+}
+
+export enum McpStatus {
+  CONNECTED = 'CONNECTED',
+  ERROR = 'ERROR',
+  DISABLED = 'DISABLED',
+  DEGRADED = 'DEGRADED',
+}
+

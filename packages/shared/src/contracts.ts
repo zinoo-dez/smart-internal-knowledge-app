@@ -1,4 +1,4 @@
-import { Department, DocumentSource, FeedbackType, IngestionStatus, TicketStatus, UserRole } from './enums';
+import { Department, DocumentSource, FeedbackType, IngestionStatus, McpStatus, McpTransport, TicketStatus, UserRole } from './enums';
 
 // Auth & Tenant Context
 export interface TenantContext {
@@ -267,6 +267,101 @@ export interface SlackBlockKitMessage {
   thread_ts?: string;
   text: string;
   blocks: Array<Record<string, unknown>>;
+}
+
+// Model Context Protocol (MCP) Contracts
+export interface McpToolSummary {
+  id: string;
+  serverId: string;
+  name: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+  isEnabled: boolean;
+  requireApproval: boolean;
+  createdAt: string;
+}
+
+export interface McpServerSummary {
+  id: string;
+  organizationId: string;
+  name: string;
+  description?: string;
+  transport: McpTransport;
+  endpointUrl?: string;
+  command?: string;
+  status: McpStatus;
+  latencyMs?: number;
+  lastPingAt?: string;
+  errorMessage?: string;
+  tools: McpToolSummary[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateMcpServerRequest {
+  name: string;
+  description?: string;
+  transport: McpTransport;
+  endpointUrl?: string;
+  command?: string;
+  headers?: Record<string, string>;
+  envSecrets?: Record<string, string>;
+}
+
+export interface UpdateMcpServerRequest {
+  name?: string;
+  description?: string;
+  endpointUrl?: string;
+  command?: string;
+  status?: McpStatus;
+  headers?: Record<string, string>;
+  envSecrets?: Record<string, string>;
+}
+
+export interface TestMcpConnectionRequest {
+  transport: McpTransport;
+  endpointUrl?: string;
+  command?: string;
+  headers?: Record<string, string>;
+}
+
+export interface TestMcpConnectionResponse {
+  success: boolean;
+  latencyMs: number;
+  serverInfo?: {
+    name?: string;
+    version?: string;
+  };
+  tools: Array<{
+    name: string;
+    description?: string;
+    inputSchema: Record<string, unknown>;
+  }>;
+  errorMessage?: string;
+}
+
+export interface ExecuteMcpToolRequest {
+  serverId: string;
+  toolName: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface ExecuteMcpToolResponse {
+  toolName: string;
+  result: unknown;
+  isError?: boolean;
+  latencyMs: number;
+}
+
+export interface ToolExecutionStreamEvent {
+  type: 'tool_start' | 'tool_result' | 'tool_approval_required';
+  toolName: string;
+  serverName?: string;
+  arguments?: Record<string, unknown>;
+  result?: unknown;
+  actionId?: string;
+  latencyMs?: number;
+  message?: string;
 }
 
 

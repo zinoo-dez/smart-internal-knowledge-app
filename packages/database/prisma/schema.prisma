@@ -58,6 +58,18 @@ enum TicketStatus {
   RESOLVED
 }
 
+enum McpTransport {
+  SSE
+  STDIO
+}
+
+enum McpStatus {
+  CONNECTED
+  ERROR
+  DISABLED
+  DEGRADED
+}
+
 model Organization {
   id          String   @id @default(uuid())
   clerkOrgId  String   @unique
@@ -73,6 +85,7 @@ model Organization {
   feedbacks      Feedback[]
   supportTickets SupportTicket[]
   auditLogs      AuditLog[]
+  mcpServers     McpServer[]
 
   @@map("organizations")
 }
@@ -253,4 +266,45 @@ model ChatMessageRecord {
 
   @@index([conversationId, createdAt])
   @@map("chat_messages")
+}
+
+model McpServer {
+  id             String        @id @default(uuid())
+  organizationId String
+  name           String
+  description    String?
+  transport      McpTransport  @default(SSE)
+  endpointUrl    String?
+  command        String?
+  envSecrets     String?       // AES-256-GCM encrypted JSON string
+  status         McpStatus     @default(CONNECTED)
+  latencyMs      Int?          @default(0)
+  lastPingAt     DateTime?
+  errorMessage   String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tools          McpTool[]
+
+  @@index([organizationId])
+  @@map("mcp_servers")
+}
+
+model McpTool {
+  id              String        @id @default(uuid())
+  serverId        String
+  name            String
+  description     String?
+  inputSchema     Json
+  isEnabled       Boolean       @default(true)
+  requireApproval Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  server          McpServer     @relation(fields: [serverId], references: [id], onDelete: Cascade)
+
+  @@unique([serverId, name])
+  @@index([serverId])
+  @@map("mcp_tools")
 }

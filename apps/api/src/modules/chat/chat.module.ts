@@ -6,9 +6,10 @@ import { ConversationsService } from './conversations.service';
 import { SearchModule } from '../search/search.module';
 import { AuthModule } from '../auth/auth.module';
 import { DocumentsModule } from '../documents/documents.module';
+import { McpModule } from '../mcp/mcp.module';
 
 @Module({
-  imports: [AuthModule, SearchModule, forwardRef(() => DocumentsModule)],
+  imports: [AuthModule, SearchModule, forwardRef(() => DocumentsModule), McpModule],
   controllers: [ChatController],
   providers: [RagAgentService, AgentToolsService, ConversationsService],
   exports: [RagAgentService, AgentToolsService, ConversationsService],

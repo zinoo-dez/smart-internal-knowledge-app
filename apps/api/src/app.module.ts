@@ -10,6 +10,7 @@ import { ChatModule } from './modules/chat/chat.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { BillingModule } from './modules/billing/billing.module';
+import { McpModule } from './modules/mcp/mcp.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { BillingModule } from './modules/billing/billing.module';
     FeedbackModule,
     AuditModule,
     BillingModule,
+    McpModule,
   ],
   providers: [
     {

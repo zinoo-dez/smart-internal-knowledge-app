@@ -14,6 +14,7 @@ import {
   AlertCircle,
   HelpCircle,
   CreditCard,
+  Cpu,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/context/language-context';
@@ -74,6 +75,12 @@ export function AppShell({ children }: AppShellProps) {
       href: '/admin/billing',
       icon: CreditCard,
       active: pathname.startsWith('/admin/billing'),
+    },
+    {
+      label: t.navMcp,
+      href: '/admin/mcp',
+      icon: Cpu,
+      active: pathname.startsWith('/admin/mcp'),
     },
     {
       label: t.navDocs,

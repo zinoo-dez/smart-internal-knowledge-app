@@ -16,6 +16,27 @@ interface Translations {
   navAuditLogs: string;
   navBilling: string;
   navDocs: string;
+  navMcp: string;
+  mcpHubTitle: string;
+  mcpHubSubtitle: string;
+  mcpConnectCustom: string;
+  mcpBrowseMarketplace: string;
+  mcpActiveServers: string;
+  mcpEnabledTools: string;
+  mcpAvgLatency: string;
+  mcpHealthStatus: string;
+  mcpTestPing: string;
+  mcpConfigure: string;
+  mcpDiscoverTools: string;
+  mcpStepGeneral: string;
+  mcpStepAuth: string;
+  mcpStepTools: string;
+  mcpServerName: string;
+  mcpTransport: string;
+  mcpEndpointUrl: string;
+  mcpAuthHeaders: string;
+  mcpRequireApproval: string;
+  mcpSaveAndActivate: string;
   multiTenantActive: string;
   roleAdmin: string;
   languageLabel: string;
@@ -141,6 +162,28 @@ const TRANSLATIONS: Record<Language, Translations> = {
     navAuditLogs: 'Audit & Compliance',
     navBilling: 'Plans & Billing',
     navDocs: 'Help & Guides',
+    navMcp: 'MCP & Integrations',
+    mcpHubTitle: 'Model Context Protocol (MCP) Hub',
+    mcpHubSubtitle:
+      'Connect enterprise MCP servers, discover live tools, and power the AI assistant with real-time systems.',
+    mcpConnectCustom: 'Connect Custom MCP',
+    mcpBrowseMarketplace: 'Browse Catalog',
+    mcpActiveServers: 'Active Servers',
+    mcpEnabledTools: 'Enabled Tools',
+    mcpAvgLatency: 'Avg Latency',
+    mcpHealthStatus: 'System Health',
+    mcpTestPing: 'Test Ping',
+    mcpConfigure: 'Configure',
+    mcpDiscoverTools: 'Discover Tools',
+    mcpStepGeneral: '1. Endpoint & Transport',
+    mcpStepAuth: '2. Authentication & Secrets',
+    mcpStepTools: '3. Discover & Permissions',
+    mcpServerName: 'Server Name',
+    mcpTransport: 'Transport Protocol',
+    mcpEndpointUrl: 'SSE Endpoint URL',
+    mcpAuthHeaders: 'Custom Headers (Encrypted AES-256)',
+    mcpRequireApproval: 'Require User Approval before execution',
+    mcpSaveAndActivate: 'Save & Activate MCP',
     multiTenantActive: 'Multi-Tenant Active',
     roleAdmin: 'Role: ADMIN',
     languageLabel: 'Language',
@@ -282,6 +325,28 @@ const TRANSLATIONS: Record<Language, Translations> = {
     navAuditLogs: 'လုံခြုံရေးနှင့် စစ်ဆေးမှု',
     navBilling: 'အစီအစဉ်နှင့် ငွေပေးချေမှု',
     navDocs: 'အကူအညီနှင့် လမ်းညွှန်',
+    navMcp: 'ချိတ်ဆက်မှုများနှင့် MCP',
+    mcpHubTitle: 'Model Context Protocol (MCP) စီမံခန့်ခွဲမှု',
+    mcpHubSubtitle:
+      'လုပ်ငန်းသုံး MCP server များကို ချိတ်ဆက်ပြီး AI လက်ထောက်အား live data နှင့် enterprise tools များဖြင့် ချိတ်ဆက်အသုံးပြုပါ။',
+    mcpConnectCustom: 'Custom MCP ချိတ်ဆက်မည်',
+    mcpBrowseMarketplace: 'စျေးကွက်ကြည့်ရှုမည်',
+    mcpActiveServers: 'ချိတ်ဆက်ထားသော Servers',
+    mcpEnabledTools: 'အသုံးပြုနိုင်သော Tools များ',
+    mcpAvgLatency: 'ပျမ်းမျှ တုံ့ပြန်ချိန်',
+    mcpHealthStatus: 'လည်ပတ်မှု အခြေအနေ',
+    mcpTestPing: 'Ping စမ်းသပ်မည်',
+    mcpConfigure: 'ပြင်ဆင်မည်',
+    mcpDiscoverTools: 'Tools ရှာဖွေမည်',
+    mcpStepGeneral: '၁။ လိပ်စာနှင့် ပရိုတိုကော',
+    mcpStepAuth: '၂။ လုံခြုံရေးနှင့် ခွင့်ပြုချက်',
+    mcpStepTools: '၃။ Tools ရှာဖွေမှုနှင့် ခွင့်ပြုချက်များ',
+    mcpServerName: 'Server အမည်',
+    mcpTransport: 'ချိတ်ဆက်မှု အမျိုးအစား',
+    mcpEndpointUrl: 'SSE Endpoint လိပ်စာ',
+    mcpAuthHeaders: 'လုံခြုံရေး Headers (AES-256 ဖြင့် ကုဒ်ဝှက်ထားသည်)',
+    mcpRequireApproval: 'အသုံးမပြုမီ သုံးစွဲသူထံမှ အတည်ပြုချက် တောင်းရန်',
+    mcpSaveAndActivate: 'သိမ်းဆည်းပြီး စတင်အသုံးပြုမည်',
     multiTenantActive: 'လုပ်ငန်းစနစ် လည်ပတ်နေသည်',
     roleAdmin: 'ရာထူး: အက်ဒမင်',
     languageLabel: 'ဘာသာစကား',

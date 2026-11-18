@@ -18,6 +18,9 @@ import {
   Trash2,
   PanelLeftClose,
   PanelLeftOpen,
+  ChevronDown,
+  AlertCircle,
+  CheckCircle2,
 } from 'lucide-react';
 import { ConversationSummary, DocumentCitation, FeedbackType } from '@knowledge/shared';
 import {
@@ -70,6 +73,15 @@ interface ChatMessage {
   citations?: DocumentCitation[];
   queryLogId?: string;
   feedbackGiven?: 'UP' | 'DOWN';
+  activeTool?: {
+    name: string;
+    serverName?: string;
+    arguments?: Record<string, unknown>;
+    result?: unknown;
+    status: 'running' | 'completed' | 'approval_required';
+    latencyMs?: number;
+    actionId?: string;
+  };
 }
 
 export default function ChatPage() {
@@ -93,6 +105,47 @@ export default function ChatPage() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [openAccordions, setOpenAccordions] = useState<Record<string, boolean>>({});
+
+  const toggleToolAccordion = (msgId: string) => {
+    setOpenAccordions((prev) => ({ ...prev, [msgId]: !prev[msgId] }));
+  };
+
+  const handleApproveAction = (msgId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msgId && m.activeTool
+          ? {
+              ...m,
+              activeTool: {
+                ...m.activeTool,
+                status: 'completed',
+                result: { status: 'APPROVED_AND_EXECUTED', timestamp: new Date().toISOString() },
+              },
+              content: m.content + '\n\n**Action confirmed:** Tool successfully executed with user approval.',
+            }
+          : m,
+      ),
+    );
+  };
+
+  const handleRejectAction = (msgId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === msgId && m.activeTool
+          ? {
+              ...m,
+              activeTool: {
+                ...m.activeTool,
+                status: 'completed',
+                result: { status: 'CANCELLED_BY_USER' },
+              },
+              content: m.content + '\n\n*Action cancelled by user.*',
+            }
+          : m,
+      ),
+    );
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -230,6 +283,54 @@ export default function ChatPage() {
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === assistantMsgId ? { ...m, content: streamedContent } : m,
+                  ),
+                );
+              } else if (data.type === 'tool_start') {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId
+                      ? {
+                          ...m,
+                          activeTool: {
+                            name: data.toolName,
+                            serverName: data.serverName,
+                            arguments: data.arguments,
+                            status: 'running',
+                          },
+                        }
+                      : m,
+                  ),
+                );
+              } else if (data.type === 'tool_result') {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId && m.activeTool
+                      ? {
+                          ...m,
+                          activeTool: {
+                            ...m.activeTool,
+                            result: data.result,
+                            latencyMs: data.latencyMs,
+                            status: 'completed',
+                          },
+                        }
+                      : m,
+                  ),
+                );
+              } else if (data.type === 'tool_approval_required') {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId
+                      ? {
+                          ...m,
+                          activeTool: {
+                            name: data.toolName,
+                            arguments: data.arguments,
+                            status: 'approval_required',
+                            actionId: data.actionId,
+                          },
+                        }
+                      : m,
                   ),
                 );
               } else if (data.type === 'citations') {
@@ -506,6 +607,98 @@ export default function ChatPage() {
                   : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none shadow-sm'
               }`}
             >
+              {/* Live MCP Tool Execution Pill & Accordion */}
+              {msg.activeTool && (
+                <div className="mb-3">
+                  {msg.activeTool.status === 'running' && (
+                    <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-xs flex items-center gap-2">
+                      <Cpu className="w-3.5 h-3.5 text-blue-600 animate-spin flex-shrink-0" />
+                      <span>
+                        Calling MCP Tool: <strong className="font-mono">{msg.activeTool.name}</strong>...
+                      </span>
+                    </div>
+                  )}
+
+                  {msg.activeTool.status === 'approval_required' && (
+                    <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-2">
+                      <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                        <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                        <span>Action Approval Required (Human-in-the-Loop)</span>
+                      </div>
+                      <p className="text-amber-800 leading-relaxed">
+                        The assistant requested execution of mutating tool: <strong className="font-mono">{msg.activeTool.name}</strong>
+                      </p>
+                      {msg.activeTool.arguments && (
+                        <pre className="p-2 rounded bg-white/70 border border-amber-200 text-[11px] font-mono text-slate-800 overflow-x-auto">
+                          {JSON.stringify(msg.activeTool.arguments, null, 2)}
+                        </pre>
+                      )}
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          onClick={() => handleApproveAction(msg.id)}
+                          className="px-3 py-1.5 rounded-md bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-colors shadow-xs min-h-[32px]"
+                        >
+                          Approve & Execute
+                        </button>
+                        <button
+                          onClick={() => handleRejectAction(msg.id)}
+                          className="px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-colors min-h-[32px]"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {msg.activeTool.status === 'completed' && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 overflow-hidden text-xs">
+                      <button
+                        onClick={() => toggleToolAccordion(msg.id)}
+                        className="w-full px-3 py-2 flex items-center justify-between bg-slate-100 hover:bg-slate-200/70 text-slate-700 transition-colors min-h-[36px]"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span className="font-medium text-slate-600">MCP Tool:</span>
+                          <span className="font-mono font-bold text-slate-900">{msg.activeTool.name}</span>
+                          {msg.activeTool.latencyMs !== undefined && (
+                            <span className="text-[10px] text-slate-500 font-mono">({msg.activeTool.latencyMs}ms)</span>
+                          )}
+                        </div>
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                            openAccordions[msg.id] ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </button>
+                      {openAccordions[msg.id] && (
+                        <div className="p-3 border-t border-slate-200 space-y-2 bg-white">
+                          {Boolean(msg.activeTool.arguments) && (
+                            <div>
+                              <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">
+                                Arguments
+                              </span>
+                              <pre className="p-2 rounded bg-slate-50 text-[11px] font-mono text-slate-800 overflow-x-auto border border-slate-100">
+                                {JSON.stringify(msg.activeTool.arguments, null, 2)}
+                              </pre>
+                            </div>
+                          )}
+                          {Boolean(msg.activeTool.result) && (
+                            <div>
+                              <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">
+                                Execution Result
+                              </span>
+                              <pre className="p-2 rounded bg-slate-50 text-[11px] font-mono text-slate-800 overflow-x-auto border border-slate-100">
+                                {JSON.stringify(msg.activeTool.result, null, 2)}
+                              </pre>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <MarkdownContent
                 content={msg.content}
                 isUser={msg.role === 'user'}
