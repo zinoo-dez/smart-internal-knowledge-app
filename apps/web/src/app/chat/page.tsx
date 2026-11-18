@@ -29,6 +29,7 @@ import {
 } from '@/lib/api-client';
 import { useLanguage } from '@/context/language-context';
 import { LanguageSwitcher } from '@/components/ui/language-switcher';
+import { MarkdownContent } from '@/components/ui/markdown-content';
 
 interface ModelOption {
   id: string;
@@ -505,7 +506,15 @@ export default function ChatPage() {
                   : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none shadow-sm'
               }`}
             >
-              <div className="whitespace-pre-wrap">{msg.content}</div>
+              <MarkdownContent
+                content={msg.content}
+                isUser={msg.role === 'user'}
+                onCitationClick={(idx) => {
+                  if (msg.citations && msg.citations[idx]) {
+                    setSelectedCitation(msg.citations[idx]);
+                  }
+                }}
+              />
 
               {/* Citations list for assistant messages */}
               {msg.citations && msg.citations.length > 0 && (
