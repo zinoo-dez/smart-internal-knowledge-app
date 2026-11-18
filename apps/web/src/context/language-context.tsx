@@ -63,6 +63,15 @@ interface Translations {
   docsLegalDisclaimer: string;
 
   // Chat Interface
+  geminiGreeting: string;
+  geminiModeChat: string;
+  geminiModeTools: string;
+  geminiModeResearch: string;
+  suggestionDbLive: string;
+  modelFlashDesc: string;
+  modelClaudeDesc: string;
+  modelGptDesc: string;
+  thinkingLevel: string;
   chatWelcomeTitle: string;
   chatWelcomeDesc: string;
   modelLabel: string;
@@ -208,6 +217,16 @@ const TRANSLATIONS: Record<Language, Translations> = {
     docsCtaChat: 'Open AI Assistant',
     docsLegalDisclaimer:
       'This is an AI-generated template for baseline compliance. For full production enterprise release, please have this reviewed by a qualified legal professional.',
+
+    geminiGreeting: 'Where should we start?',
+    geminiModeChat: 'Chat',
+    geminiModeTools: 'Live MCP Tools',
+    geminiModeResearch: 'Deep Research',
+    suggestionDbLive: 'Query live PostgreSQL database for active employees',
+    modelFlashDesc: 'Quick answers · 3.5 Flash-Lite',
+    modelClaudeDesc: 'Everyday help & code · Claude 3.5 Sonnet',
+    modelGptDesc: 'Deep research & multimodal · GPT-4o',
+    thinkingLevel: 'Thinking level',
 
     chatWelcomeTitle: 'Hello! I am your Smart Internal Knowledge Assistant.',
     chatWelcomeDesc:
@@ -371,6 +390,16 @@ const TRANSLATIONS: Record<Language, Translations> = {
     docsCtaChat: 'AI လက်ထောက်ကို သုံးမည်',
     docsLegalDisclaimer:
       'ဤစာတမ်းသည် AI စနစ်ဖြင့် အခြေခံလိုက်နာရန် ရေးဆွဲထားသော စံပြမူကြမ်းသာ ဖြစ်ပါသည်။ လုပ်ငန်းခွင် အပြည့်အဝ တရားဝင် ထုတ်ပြန်အသုံးပြုရန်အတွက် အရည်အချင်းပြည့်မီသော ဥပဒေအကြံပေးပညာရှင်နှင့် စစ်ဆေးအတည်ပြုရန် လိုအပ်ပါသည်။',
+
+    geminiGreeting: 'ဘာကနေ စတင်မေးမြန်းလိုပါသလဲခင်ဗျာ?',
+    geminiModeChat: 'စကားဝိုင်း',
+    geminiModeTools: 'Live MCP Tools',
+    geminiModeResearch: 'အသေးစိတ်သုတေသန',
+    suggestionDbLive: 'Live database မှ ဝန်ထမ်းအချက်အလက်များ စစ်ဆေးမည်',
+    modelFlashDesc: 'အမြန်ဆုံးအဖြေများ · 3.5 Flash-Lite',
+    modelClaudeDesc: 'နေ့စဉ်အကူအညီနှင့် Code · Claude 3.5 Sonnet',
+    modelGptDesc: 'အသေးစိတ်ဆန်းစစ်ချက် · GPT-4o',
+    thinkingLevel: 'စဉ်းစားတွေးခေါ်မှုအဆင့်',
 
     chatWelcomeTitle: 'မင်္ဂလာပါ! ကျွန်ုပ်သည် ကုမ္ပဏီ၏ AI လက်ထောက်ဖြစ်ပါသည်။',
     chatWelcomeDesc:

@@ -21,6 +21,11 @@ import {
   ChevronDown,
   AlertCircle,
   CheckCircle2,
+  Mic,
+  Check,
+  Database,
+  Shield,
+  Calendar,
 } from 'lucide-react';
 import { ConversationSummary, DocumentCitation, FeedbackType } from '@knowledge/shared';
 import {
@@ -37,31 +42,43 @@ import { MarkdownContent } from '@/components/ui/markdown-content';
 interface ModelOption {
   id: string;
   name: string;
+  shortLabel: string;
   provider: 'GEMINI' | 'OPENAI' | 'CLAUDE';
   modelName: string;
+  purposeTitle: string;
+  subtitle: string;
   badge: string;
 }
 
 const AVAILABLE_MODELS: ModelOption[] = [
   {
     id: 'gemini-3.5-flash',
-    name: 'Gemini 3.5 Flash',
+    name: 'Gemini 3.5 Flash-Lite',
+    shortLabel: 'Flash-Lite',
     provider: 'GEMINI',
     modelName: 'gemini-3.5-flash-lite',
+    purposeTitle: 'Quick answers',
+    subtitle: 'Gemini 3.5 Flash-Lite',
     badge: 'Default (Fast)',
   },
   {
     id: 'claude-3-5-sonnet',
     name: 'Claude 3.5 Sonnet',
+    shortLabel: 'Claude 3.5',
     provider: 'CLAUDE',
     modelName: 'claude-3-5-sonnet-20241022',
+    purposeTitle: 'Everyday help & code',
+    subtitle: 'Claude 3.5 Sonnet',
     badge: 'Deep Reasoning',
   },
   {
     id: 'gpt-4o',
-    name: 'GPT-4o',
+    name: 'GPT-4o Pro',
+    shortLabel: 'Pro',
     provider: 'OPENAI',
     modelName: 'gpt-4o',
+    purposeTitle: 'Detailed research',
+    subtitle: 'GPT-4o Multimodal',
     badge: 'Multimodal Flagship',
   },
 ];
@@ -85,15 +102,8 @@ interface ChatMessage {
 }
 
 export default function ChatPage() {
-  const { t, language, isMyanmar } = useLanguage();
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: 'welcome-msg',
-      role: 'assistant',
-      content:
-        'Hello! I am your Smart Internal Knowledge Assistant. Ask me any question regarding company policies, engineering documentation, onboarding, or internal tools.\n\nEvery answer includes verifiable citations directly linked to company documentation.',
-    },
-  ]);
+  const { t, language } = useLanguage();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [selectedCitation, setSelectedCitation] = useState<DocumentCitation | null>(null);
@@ -101,11 +111,34 @@ export default function ChatPage() {
   const [ticketTitle, setTicketTitle] = useState('');
   const [ticketDescription, setTicketDescription] = useState('');
   const [ticketSubmittedMsg, setTicketSubmittedMsg] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<ModelOption>(AVAILABLE_MODELS[0]);
+  const [selectedModel, setSelectedModel] = useState<ModelOption>(AVAILABLE_MODELS[2]); // Default Pro
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [openAccordions, setOpenAccordions] = useState<Record<string, boolean>>({});
+
+  // Gemini UI States
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [activeMode, setActiveMode] = useState<'chat' | 'tools' | 'research'>('chat');
+  const [thinkingLevel, setThinkingLevel] = useState<'normal' | 'deep'>('deep');
+
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Close model dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (modelDropdownRef.current && !modelDropdownRef.current.contains(event.target as Node)) {
+        setIsModelDropdownOpen(false);
+      }
+    };
+    if (isModelDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isModelDropdownOpen]);
 
   const toggleToolAccordion = (msgId: string) => {
     setOpenAccordions((prev) => ({ ...prev, [msgId]: !prev[msgId] }));
@@ -146,18 +179,6 @@ export default function ChatPage() {
       ),
     );
   };
-
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Sync welcome message on initial language toggle if conversation has not started
-  useEffect(() => {
-    setMessages((prev) => {
-      if (prev.length === 1 && prev[0].id === 'welcome-msg') {
-        return [{ id: 'welcome-msg', role: 'assistant', content: t.chatWelcomeDesc }];
-      }
-      return prev;
-    });
-  }, [language, t.chatWelcomeDesc]);
 
   const loadThreads = async () => {
     try {
@@ -200,13 +221,7 @@ export default function ChatPage() {
   const handleNewChat = () => {
     if (isStreaming) return;
     setActiveConversationId(null);
-    setMessages([
-      {
-        id: 'welcome-msg',
-        role: 'assistant',
-        content: t.chatWelcomeDesc,
-      },
-    ]);
+    setMessages([]);
   };
 
   const handleDeleteThread = async (threadId: string, e: React.MouseEvent) => {
@@ -228,6 +243,7 @@ export default function ChatPage() {
     if (!query || isStreaming) return;
 
     setInput('');
+    setIsModelDropdownOpen(false);
     const userMsgId = `user-${Date.now()}`;
     const assistantMsgId = `asst-${Date.now()}`;
 
@@ -362,7 +378,6 @@ export default function ChatPage() {
       }
     } catch (err) {
       console.warn('Backend stream error, using client-side simulated answer:', err);
-      // Fallback demo response if backend is not started
       const demoAnswer = `Based on **Company Remote Work & VPN Setup Handbook** [1], all employees connecting to internal database clusters must install the WireGuard VPN client and authenticate using single sign-on (SSO).\n\nIf you encounter connection drops, verify your IP is whitelisted on the internal portal.`;
       const demoCitations: DocumentCitation[] = [
         {
@@ -434,11 +449,85 @@ export default function ChatPage() {
     }
   };
 
+  const promptSuggestions = [
+    {
+      icon: <Database className="w-4 h-4" />,
+      text: t.suggestionAws,
+    },
+    {
+      icon: <Shield className="w-4 h-4" />,
+      text: t.suggestionVpn,
+    },
+    {
+      icon: <Calendar className="w-4 h-4" />,
+      text: t.suggestionLeave,
+    },
+    {
+      icon: <Cpu className="w-4 h-4" />,
+      text: t.suggestionDbLive,
+    },
+    {
+      icon: <Sparkles className="w-4 h-4" />,
+      text: t.suggestionMyanmarLeave,
+    },
+  ];
+
+  const isWelcomeState = messages.length === 0;
+
+  // Render floating Model Dropdown Card
+  const renderModelDropdownCard = (positionClasses: string) => (
+    <div
+      className={`absolute ${positionClasses} z-40 w-72 bg-white rounded-2xl shadow-xl border border-slate-200/90 p-2 text-xs divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-150`}
+    >
+      <div className="py-1 space-y-1">
+        {AVAILABLE_MODELS.map((model) => {
+          const isSelected = selectedModel.id === model.id;
+          return (
+            <button
+              key={model.id}
+              type="button"
+              onClick={() => {
+                setSelectedModel(model);
+                setIsModelDropdownOpen(false);
+              }}
+              className={`w-full text-left px-3 py-2.5 rounded-xl flex items-start justify-between transition-colors ${
+                isSelected
+                  ? 'bg-slate-100/90 font-semibold text-slate-900 border border-slate-200/60'
+                  : 'hover:bg-slate-50 text-slate-700'
+              }`}
+            >
+              <div>
+                <div className="font-semibold text-slate-900 text-xs">{model.purposeTitle}</div>
+                <div className="text-[11px] text-slate-500 font-normal">{model.subtitle}</div>
+              </div>
+              {isSelected && <Check className="w-4 h-4 text-slate-900 mt-0.5 shrink-0" />}
+            </button>
+          );
+        })}
+      </div>
+      <div className="pt-2 pb-1 px-1">
+        <button
+          type="button"
+          onClick={() => setThinkingLevel((prev) => (prev === 'deep' ? 'normal' : 'deep'))}
+          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-50 text-slate-700 text-xs transition-colors"
+        >
+          <span className="font-medium flex items-center gap-1.5 text-slate-700">
+            <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+            {t.thinkingLevel}
+          </span>
+          <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200/60">
+            {thinkingLevel === 'deep' ? 'Deep' : 'Standard'}
+          </span>
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex h-[calc(100vh-6rem)] gap-4 relative">
       {/* Left: Thread History Sidebar */}
       <aside
-        className={`shrink-0 transition-all duration-200 flex flex-col bg-white rounded-xl border border-slate-200/80 shadow-sm overflow-hidden ${
+        className={`shrink-0 transition-all duration-200 flex flex-col bg-white rounded-xl border border-slate-200/80 shadow-xs overflow-hidden ${
           isSidebarOpen ? 'w-64' : 'w-0 border-none'
         }`}
       >
@@ -448,7 +537,7 @@ export default function ChatPage() {
             <button
               onClick={handleNewChat}
               disabled={isStreaming}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-colors min-h-[40px]"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors min-h-[40px]"
             >
               <Plus className="w-4 h-4" />
               <span>{t.newConversation}</span>
@@ -503,307 +592,470 @@ export default function ChatPage() {
         )}
       </aside>
 
-      {/* Main Chat Screen */}
-      <div className="flex-1 flex flex-col min-w-0 bg-white rounded-xl border border-slate-200/80 p-4 shadow-sm relative overflow-hidden">
-        {/* Top Controls: Sidebar Toggle + Model Selector & Suggestions */}
-        <div className="pb-3 border-b border-slate-200 shrink-0 space-y-2.5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Main Screen Container */}
+      <div className="flex-1 flex flex-col min-w-0 bg-white rounded-xl border border-slate-200/80 shadow-xs relative overflow-hidden">
+        {/* Top Header Bar */}
+        <div className="px-4 py-3 border-b border-slate-200/80 shrink-0 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
+              title={isSidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
+            >
+              {isSidebarOpen ? (
+                <PanelLeftClose className="w-4 h-4" />
+              ) : (
+                <PanelLeftOpen className="w-4 h-4" />
+              )}
+            </button>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500 transition-colors"
-                title={isSidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
-              >
-                {isSidebarOpen ? (
-                  <PanelLeftClose className="w-4 h-4" />
-                ) : (
-                  <PanelLeftOpen className="w-4 h-4" />
-                )}
-              </button>
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                <Cpu className="w-3.5 h-3.5 text-blue-600" />
-                <span>{t.modelLabel}</span>
+              <Bot className="w-4 h-4 text-blue-600" />
+              <span className="text-xs font-semibold text-slate-800 tracking-tight">
+                {t.appTitle}
               </span>
-              <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
-                {AVAILABLE_MODELS.map((model) => {
-                  const isSelected = selectedModel.id === model.id;
-                  return (
-                    <button
-                      key={model.id}
-                      type="button"
-                      onClick={() => setSelectedModel(model)}
-                      disabled={isStreaming}
-                      className={`text-xs px-2.5 py-1 rounded-md font-medium transition-all ${
-                        isSelected
-                          ? 'bg-white text-slate-900 shadow-sm border border-slate-200/80 font-semibold'
-                          : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60'
-                      }`}
-                    >
-                      {model.name}
-                    </button>
-                  );
-                })}
-              </div>
-              <span className="hidden sm:inline-block text-[11px] text-slate-500 font-mono bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                {selectedModel.badge}
+              <span className="hidden sm:inline-block text-[11px] text-slate-400 font-normal">
+                · {selectedModel.name}
               </span>
-            </div>
-
-            {/* Language Switcher in Chat Header */}
-            <div className="flex items-center gap-2">
-              <LanguageSwitcher />
             </div>
           </div>
 
-        {/* Suggestions Bar */}
-        <div className="flex items-center gap-2 overflow-x-auto">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider shrink-0 flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-            <span>{t.suggestionsLabel}</span>
-          </span>
-          {[
-            t.suggestionVpn,
-            t.suggestionLeave,
-            t.suggestionAws,
-            t.suggestionMyanmarLeave,
-          ].map((prompt, idx) => (
-            <button
-              key={idx}
-              onClick={() => handleSend(prompt)}
-              disabled={isStreaming}
-              className="text-xs bg-white hover:bg-slate-100 text-slate-700 font-medium px-3 py-1.5 rounded-full border border-slate-200 transition-colors whitespace-nowrap"
-            >
-              {prompt}
-            </button>
-          ))}
+          <div className="flex items-center gap-2">
+            {!isWelcomeState && (
+              <button
+                onClick={handleNewChat}
+                disabled={isStreaming}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{t.newConversation}</span>
+              </button>
+            )}
+            <LanguageSwitcher />
+          </div>
         </div>
-      </div>
 
-      {/* Message Stream */}
-      <div className="flex-1 overflow-y-auto py-6 space-y-6">
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex items-start gap-3.5 ${
-              msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'
-            }`}
-          >
-            {/* Avatar */}
-            <div
-              className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-xs font-semibold ${
-                msg.role === 'user'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-white border border-slate-200 text-slate-700 shadow-sm'
-              }`}
-            >
-              {msg.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4 text-blue-600" />}
+        {/* View Switch: Center-Stage Empty State vs Active Message Stream */}
+        {isWelcomeState ? (
+          <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 overflow-y-auto">
+            {/* Center-Stage Greeting */}
+            <div className="text-center mb-8 space-y-2">
+              <h1 className="text-3xl sm:text-4xl font-normal text-slate-800 tracking-tight">
+                {t.geminiGreeting}
+              </h1>
             </div>
 
-            {/* Bubble */}
-            <div
-              className={`max-w-2xl rounded-2xl p-4 text-sm leading-relaxed ${
-                msg.role === 'user'
-                  ? 'bg-blue-600 text-white rounded-tr-none'
-                  : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none shadow-sm'
-              }`}
-            >
-              {/* Live MCP Tool Execution Pill & Accordion */}
-              {msg.activeTool && (
-                <div className="mb-3">
-                  {msg.activeTool.status === 'running' && (
-                    <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-xs flex items-center gap-2">
-                      <Cpu className="w-3.5 h-3.5 text-blue-600 animate-spin flex-shrink-0" />
-                      <span>
-                        Calling MCP Tool: <strong className="font-mono">{msg.activeTool.name}</strong>...
-                      </span>
-                    </div>
-                  )}
-
-                  {msg.activeTool.status === 'approval_required' && (
-                    <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-2">
-                      <div className="flex items-center gap-1.5 font-bold text-amber-900">
-                        <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                        <span>Action Approval Required (Human-in-the-Loop)</span>
-                      </div>
-                      <p className="text-amber-800 leading-relaxed">
-                        The assistant requested execution of mutating tool: <strong className="font-mono">{msg.activeTool.name}</strong>
-                      </p>
-                      {msg.activeTool.arguments && (
-                        <pre className="p-2 rounded bg-white/70 border border-amber-200 text-[11px] font-mono text-slate-800 overflow-x-auto">
-                          {JSON.stringify(msg.activeTool.arguments, null, 2)}
-                        </pre>
-                      )}
-                      <div className="flex items-center gap-2 pt-1">
-                        <button
-                          onClick={() => handleApproveAction(msg.id)}
-                          className="px-3 py-1.5 rounded-md bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-colors shadow-xs min-h-[32px]"
-                        >
-                          Approve & Execute
-                        </button>
-                        <button
-                          onClick={() => handleRejectAction(msg.id)}
-                          className="px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-colors min-h-[32px]"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {msg.activeTool.status === 'completed' && (
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 overflow-hidden text-xs">
-                      <button
-                        onClick={() => toggleToolAccordion(msg.id)}
-                        className="w-full px-3 py-2 flex items-center justify-between bg-slate-100 hover:bg-slate-200/70 text-slate-700 transition-colors min-h-[36px]"
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span className="font-medium text-slate-600">MCP Tool:</span>
-                          <span className="font-mono font-bold text-slate-900">{msg.activeTool.name}</span>
-                          {msg.activeTool.latencyMs !== undefined && (
-                            <span className="text-[10px] text-slate-500 font-mono">({msg.activeTool.latencyMs}ms)</span>
-                          )}
-                        </div>
-                        <ChevronDown
-                          className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
-                            openAccordions[msg.id] ? 'rotate-180' : ''
-                          }`}
-                        />
-                      </button>
-                      {openAccordions[msg.id] && (
-                        <div className="p-3 border-t border-slate-200 space-y-2 bg-white">
-                          {Boolean(msg.activeTool.arguments) && (
-                            <div>
-                              <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">
-                                Arguments
-                              </span>
-                              <pre className="p-2 rounded bg-slate-50 text-[11px] font-mono text-slate-800 overflow-x-auto border border-slate-100">
-                                {JSON.stringify(msg.activeTool.arguments, null, 2)}
-                              </pre>
-                            </div>
-                          )}
-                          {Boolean(msg.activeTool.result) && (
-                            <div>
-                              <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">
-                                Execution Result
-                              </span>
-                              <pre className="p-2 rounded bg-slate-50 text-[11px] font-mono text-slate-800 overflow-x-auto border border-slate-100">
-                                {JSON.stringify(msg.activeTool.result, null, 2)}
-                              </pre>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <MarkdownContent
-                content={msg.content}
-                isUser={msg.role === 'user'}
-                onCitationClick={(idx) => {
-                  if (msg.citations && msg.citations[idx]) {
-                    setSelectedCitation(msg.citations[idx]);
-                  }
+            {/* Omnibox Floating Pill Container */}
+            <div className="w-full max-w-2xl relative" ref={modelDropdownRef}>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSend();
                 }}
-              />
+                className="relative"
+              >
+                <div className="rounded-full bg-white border border-slate-200/90 shadow-sm hover:shadow-md focus-within:shadow-md focus-within:border-slate-300 transition-all p-1.5 pl-3.5 pr-2 flex items-center gap-2">
+                  {/* Plus Action Button */}
+                  <button
+                    type="button"
+                    className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-100 text-slate-500 transition-colors shrink-0"
+                    title="Attach context or documents"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
 
-              {/* Citations list for assistant messages */}
-              {msg.citations && msg.citations.length > 0 && (
-                <div className="mt-4 pt-3 border-t border-slate-100">
-                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                    <BookOpen className="w-3.5 h-3.5 text-blue-600" />
-                    <span>{t.citedSources}:</span>
+                  {/* Input Query */}
+                  <input
+                    type="text"
+                    placeholder={t.inputPlaceholder}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    disabled={isStreaming}
+                    className="flex-1 bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 text-sm py-2 min-w-0"
+                    autoFocus
+                  />
+
+                  {/* Model Selector Inline Pill */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                      className="rounded-full bg-slate-100/90 hover:bg-slate-200/80 px-3 py-1.5 text-xs font-semibold text-slate-700 flex items-center gap-1 transition-colors shrink-0 border border-slate-200/60"
+                    >
+                      <span>{selectedModel.shortLabel}</span>
+                      <ChevronDown
+                        className={`w-3.5 h-3.5 text-slate-500 transition-transform ${
+                          isModelDropdownOpen ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
+
+                    {/* Floating Dropdown Card (Center-Stage: Pops DOWN) */}
+                    {isModelDropdownOpen && renderModelDropdownCard('right-0 top-full mt-2')}
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    {msg.citations.map((c, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => setSelectedCitation(c)}
-                        className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium border border-blue-100 hover:bg-blue-100 transition-colors"
-                      >
-                        <span>[{idx + 1}]</span>
-                        <span className="truncate max-w-[200px]">{c.documentTitle}</span>
-                      </button>
-                    ))}
-                  </div>
+
+                  {/* Voice Mic or Send Button */}
+                  {input.trim() ? (
+                    <button
+                      type="submit"
+                      disabled={isStreaming}
+                      className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors shrink-0 shadow-xs"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
+                      title="Voice input"
+                    >
+                      <Mic className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
-              )}
+              </form>
 
-              {/* Assistant Message Actions & Feedback */}
-              {msg.role === 'assistant' && msg.id !== 'welcome-msg' && (
-                <div className="mt-3 pt-2.5 flex items-center justify-between text-xs text-slate-400 border-t border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleFeedback(msg.id, msg.queryLogId, FeedbackType.THUMBS_UP)}
-                      disabled={!!msg.feedbackGiven}
-                      className={`p-1 rounded hover:bg-slate-100 transition-colors ${
-                        msg.feedbackGiven === 'UP' ? 'text-emerald-600 font-bold' : ''
-                      }`}
-                      title={t.feedbackHelpful}
-                    >
-                      <ThumbsUp className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => handleFeedback(msg.id, msg.queryLogId, FeedbackType.THUMBS_DOWN)}
-                      disabled={!!msg.feedbackGiven}
-                      className={`p-1 rounded hover:bg-slate-100 transition-colors ${
-                        msg.feedbackGiven === 'DOWN' ? 'text-rose-600 font-bold' : ''
-                      }`}
-                      title={t.feedbackUnhelpful}
-                    >
-                      <ThumbsDown className="w-3.5 h-3.5" />
-                    </button>
-                    {msg.feedbackGiven && (
-                      <span className="text-[11px] text-slate-500">Thank you for feedback!</span>
+              {/* Mode Switcher Pills */}
+              <div className="flex items-center justify-center gap-2 mt-4">
+                <button
+                  type="button"
+                  onClick={() => setActiveMode('chat')}
+                  className={`px-3.5 py-1 rounded-full text-xs font-medium transition-all ${
+                    activeMode === 'chat'
+                      ? 'bg-slate-200/90 text-slate-900 font-semibold shadow-xs'
+                      : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/80'
+                  }`}
+                >
+                  {t.geminiModeChat}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveMode('tools')}
+                  className={`px-3.5 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
+                    activeMode === 'tools'
+                      ? 'bg-blue-100 text-blue-900 font-semibold border border-blue-200 shadow-xs'
+                      : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/80'
+                  }`}
+                >
+                  <Cpu className="w-3 h-3 text-blue-600" />
+                  <span>{t.geminiModeTools}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveMode('research')}
+                  className={`px-3.5 py-1 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
+                    activeMode === 'research'
+                      ? 'bg-indigo-100 text-indigo-900 font-semibold border border-indigo-200 shadow-xs'
+                      : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/80'
+                  }`}
+                >
+                  <Sparkles className="w-3 h-3 text-indigo-600" />
+                  <span>{t.geminiModeResearch}</span>
+                </button>
+              </div>
+
+              {/* Vertical Prompt Cards (Inspired by Gemini Reference UI) */}
+              <div className="mt-8 space-y-2 max-w-lg mx-auto">
+                {promptSuggestions.map((item, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleSend(item.text)}
+                    className="w-full flex items-center gap-3.5 p-3 rounded-xl hover:bg-slate-100/70 text-left transition-all text-slate-700 hover:text-slate-900 group"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-slate-100 group-hover:bg-white group-hover:shadow-xs flex items-center justify-center text-slate-500 group-hover:text-blue-600 transition-colors shrink-0">
+                      {item.icon}
+                    </div>
+                    <span className="text-xs sm:text-sm font-medium leading-relaxed truncate">
+                      {item.text}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Active Conversation Stream + Docked Floating Omnibox */
+          <div className="flex-1 flex flex-col min-h-0 relative">
+            {/* Scrollable Message List */}
+            <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
+              {messages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`flex items-start gap-3.5 ${
+                    msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'
+                  }`}
+                >
+                  {/* Avatar */}
+                  <div
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-xs font-semibold ${
+                      msg.role === 'user'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white border border-slate-200 text-slate-700 shadow-xs'
+                    }`}
+                  >
+                    {msg.role === 'user' ? (
+                      <User className="w-4 h-4" />
+                    ) : (
+                      <Bot className="w-4 h-4 text-blue-600" />
                     )}
                   </div>
 
-                  <button
-                    onClick={() => {
-                      setTicketTitle('Escalated inquiry: ' + (messages[messages.length - 2]?.content || ''));
-                      setTicketModalOpen(true);
-                    }}
-                    className="inline-flex items-center gap-1 text-slate-500 hover:text-blue-600 font-medium"
+                  {/* Message Bubble */}
+                  <div
+                    className={`max-w-2xl rounded-2xl p-4 text-sm leading-relaxed ${
+                      msg.role === 'user'
+                        ? 'bg-blue-600 text-white rounded-tr-none'
+                        : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none shadow-xs'
+                    }`}
                   >
-                    <LifeBuoy className="w-3.5 h-3.5" />
-                    <span>{t.openTicket}</span>
-                  </button>
+                    {/* Live MCP Tool Execution Pill & Accordion */}
+                    {msg.activeTool && (
+                      <div className="mb-3">
+                        {msg.activeTool.status === 'running' && (
+                          <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-xs flex items-center gap-2">
+                            <Cpu className="w-3.5 h-3.5 text-blue-600 animate-spin flex-shrink-0" />
+                            <span>
+                              Calling MCP Tool: <strong className="font-mono">{msg.activeTool.name}</strong>...
+                            </span>
+                          </div>
+                        )}
+
+                        {msg.activeTool.status === 'approval_required' && (
+                          <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-2">
+                            <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                              <span>Action Approval Required (Human-in-the-Loop)</span>
+                            </div>
+                            <p className="text-amber-800 leading-relaxed">
+                              The assistant requested execution of mutating tool:{' '}
+                              <strong className="font-mono">{msg.activeTool.name}</strong>
+                            </p>
+                            {msg.activeTool.arguments && (
+                              <pre className="p-2 rounded bg-white/70 border border-amber-200 text-[11px] font-mono text-slate-800 overflow-x-auto">
+                                {JSON.stringify(msg.activeTool.arguments, null, 2)}
+                              </pre>
+                            )}
+                            <div className="flex items-center gap-2 pt-1">
+                              <button
+                                onClick={() => handleApproveAction(msg.id)}
+                                className="px-3 py-1.5 rounded-md bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-colors shadow-xs min-h-[32px]"
+                              >
+                                Approve & Execute
+                              </button>
+                              <button
+                                onClick={() => handleRejectAction(msg.id)}
+                                className="px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-colors min-h-[32px]"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {msg.activeTool.status === 'completed' && (
+                          <div className="rounded-lg border border-slate-200 bg-slate-50 overflow-hidden text-xs">
+                            <button
+                              onClick={() => toggleToolAccordion(msg.id)}
+                              className="w-full px-3 py-2 flex items-center justify-between bg-slate-100 hover:bg-slate-200/70 text-slate-700 transition-colors min-h-[36px]"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span className="font-medium text-slate-600">MCP Tool:</span>
+                                <span className="font-mono font-bold text-slate-900">{msg.activeTool.name}</span>
+                                {msg.activeTool.latencyMs !== undefined && (
+                                  <span className="text-[10px] text-slate-500 font-mono">
+                                    ({msg.activeTool.latencyMs}ms)
+                                  </span>
+                                )}
+                              </div>
+                              <ChevronDown
+                                className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                                  openAccordions[msg.id] ? 'rotate-180' : ''
+                                }`}
+                              />
+                            </button>
+                            {openAccordions[msg.id] && (
+                              <div className="p-3 border-t border-slate-200 space-y-2 bg-white">
+                                {Boolean(msg.activeTool.arguments) && (
+                                  <div>
+                                    <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">
+                                      Arguments
+                                    </span>
+                                    <pre className="p-2 rounded bg-slate-50 text-[11px] font-mono text-slate-800 overflow-x-auto border border-slate-100">
+                                      {JSON.stringify(msg.activeTool.arguments, null, 2)}
+                                    </pre>
+                                  </div>
+                                )}
+                                {Boolean(msg.activeTool.result) && (
+                                  <div>
+                                    <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">
+                                      Execution Result
+                                    </span>
+                                    <pre className="p-2 rounded bg-slate-50 text-[11px] font-mono text-slate-800 overflow-x-auto border border-slate-100">
+                                      {JSON.stringify(msg.activeTool.result, null, 2)}
+                                    </pre>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <MarkdownContent
+                      content={msg.content}
+                      isUser={msg.role === 'user'}
+                      onCitationClick={(idx) => {
+                        if (msg.citations && msg.citations[idx]) {
+                          setSelectedCitation(msg.citations[idx]);
+                        }
+                      }}
+                    />
+
+                    {/* Citations list for assistant messages */}
+                    {msg.citations && msg.citations.length > 0 && (
+                      <div className="mt-4 pt-3 border-t border-slate-100">
+                        <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+                          <BookOpen className="w-3.5 h-3.5 text-blue-600" />
+                          <span>{t.citedSources}:</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {msg.citations.map((c, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => setSelectedCitation(c)}
+                              className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium border border-blue-100 hover:bg-blue-100 transition-colors"
+                            >
+                              <span>[{idx + 1}]</span>
+                              <span className="truncate max-w-[200px]">{c.documentTitle}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Assistant Message Actions & Feedback */}
+                    {msg.role === 'assistant' && (
+                      <div className="mt-3 pt-2.5 flex items-center justify-between text-xs text-slate-400 border-t border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleFeedback(msg.id, msg.queryLogId, FeedbackType.THUMBS_UP)}
+                            disabled={!!msg.feedbackGiven}
+                            className={`p-1 rounded hover:bg-slate-100 transition-colors ${
+                              msg.feedbackGiven === 'UP' ? 'text-emerald-600 font-bold' : ''
+                            }`}
+                            title={t.feedbackHelpful}
+                          >
+                            <ThumbsUp className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleFeedback(msg.id, msg.queryLogId, FeedbackType.THUMBS_DOWN)}
+                            disabled={!!msg.feedbackGiven}
+                            className={`p-1 rounded hover:bg-slate-100 transition-colors ${
+                              msg.feedbackGiven === 'DOWN' ? 'text-rose-600 font-bold' : ''
+                            }`}
+                            title={t.feedbackUnhelpful}
+                          >
+                            <ThumbsDown className="w-3.5 h-3.5" />
+                          </button>
+                          {msg.feedbackGiven && (
+                            <span className="text-[11px] text-slate-500">Thank you for feedback!</span>
+                          )}
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            setTicketTitle('Escalated inquiry: ' + (messages[messages.length - 2]?.content || ''));
+                            setTicketModalOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1 text-slate-500 hover:text-blue-600 font-medium"
+                        >
+                          <LifeBuoy className="w-3.5 h-3.5" />
+                          <span>{t.openTicket}</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              )}
+              ))}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Bottom Docked Floating Omnibox */}
+            <div className="p-3 bg-gradient-to-t from-white via-white/95 to-transparent shrink-0">
+              <div className="w-full max-w-3xl mx-auto relative" ref={modelDropdownRef}>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSend();
+                  }}
+                  className="relative"
+                >
+                  <div className="rounded-full bg-white border border-slate-200/90 shadow-sm hover:shadow-md focus-within:shadow-md focus-within:border-slate-300 transition-all p-1.5 pl-3.5 pr-2 flex items-center gap-2">
+                    {/* Plus Action Button */}
+                    <button
+                      type="button"
+                      className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-100 text-slate-500 transition-colors shrink-0"
+                      title="Attach context or documents"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+
+                    {/* Input Query */}
+                    <input
+                      type="text"
+                      placeholder={t.inputPlaceholder}
+                      value={input}
+                      onChange={(e) => setInput(e.target.value)}
+                      disabled={isStreaming}
+                      className="flex-1 bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 text-sm py-2 min-w-0"
+                      autoFocus
+                    />
+
+                    {/* Model Selector Inline Pill */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                        className="rounded-full bg-slate-100/90 hover:bg-slate-200/80 px-3 py-1.5 text-xs font-semibold text-slate-700 flex items-center gap-1 transition-colors shrink-0 border border-slate-200/60"
+                      >
+                        <span>{selectedModel.shortLabel}</span>
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 text-slate-500 transition-transform ${
+                            isModelDropdownOpen ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </button>
+
+                      {/* Floating Dropdown Card (Bottom Docked: Pops UP) */}
+                      {isModelDropdownOpen && renderModelDropdownCard('right-0 bottom-full mb-2')}
+                    </div>
+
+                    {/* Voice Mic or Send Button */}
+                    {input.trim() ? (
+                      <button
+                        type="submit"
+                        disabled={isStreaming}
+                        className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors shrink-0 shadow-xs"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
+                        title="Voice input"
+                      >
+                        <Mic className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </div>
             </div>
           </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input Bar */}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          handleSend();
-        }}
-        className="pt-3 border-t border-slate-200 shrink-0"
-      >
-        <div className="relative flex items-center bg-white rounded-xl border border-slate-200 shadow-sm focus-within:border-blue-600 focus-within:ring-1 focus-within:ring-blue-600">
-          <input
-            type="text"
-            placeholder={t.inputPlaceholder}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            disabled={isStreaming}
-            className="w-full py-3.5 pl-4 pr-14 text-sm bg-transparent outline-none disabled:opacity-50"
-          />
-          <button
-            type="submit"
-            disabled={!input.trim() || isStreaming}
-            className="absolute right-2.5 p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-40 min-h-[40px] min-w-[40px] flex items-center justify-center"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </div>
-      </form>
+        )}
       </div>
 
       {/* Right-Side Slide-out Citation Inspection Drawer */}
@@ -927,7 +1179,7 @@ export default function ChatPage() {
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-sm min-h-[44px]"
+                    className="px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs min-h-[44px]"
                   >
                     {t.submit}
                   </button>
