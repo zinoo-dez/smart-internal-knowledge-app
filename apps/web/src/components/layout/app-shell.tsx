@@ -28,12 +28,22 @@ export function AppShell({ children }: AppShellProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { t } = useLanguage();
 
+  const isLandingPage = pathname === '/';
+
+  if (isLandingPage) {
+    return (
+      <div className="min-h-screen bg-white text-slate-900 flex flex-col">
+        {children}
+      </div>
+    );
+  }
+
   const navItems = [
     {
       label: t.navAssistant,
       href: '/chat',
       icon: Bot,
-      active: pathname === '/chat' || pathname === '/',
+      active: pathname === '/chat',
     },
     {
       label: t.navDocuments,
