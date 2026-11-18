@@ -11,6 +11,7 @@ import { FeedbackModule } from './modules/feedback/feedback.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { BillingModule } from './modules/billing/billing.module';
 import { McpModule } from './modules/mcp/mcp.module';
+import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { McpModule } from './modules/mcp/mcp.module';
       },
     ]),
     PrismaModule,
+    HealthModule,
     AuthModule,
     DocumentsModule,
     SearchModule,

@@ -7,6 +7,13 @@ export interface SanitizationResult {
   redactedTypes: string[];
 }
 
+export interface PseudonymizationResult {
+  pseudonymizedText: string;
+  vaultMap: Record<string, string>; // Maps e.g. "<PATIENT_REF_1>" -> "John Doe"
+  entitiesCount: number;
+  entityTypes: string[];
+}
+
 @Injectable()
 export class DataSanitizerService {
   private readonly logger = new Logger(DataSanitizerService.name);
@@ -34,6 +41,21 @@ export class DataSanitizerService {
   // 6. Generic Secret Assignments (e.g. api_key="...", client_secret: '...')
   private readonly genericSecretPattern =
     /\b(api[_-]?key|secret[_-]?key|client[_-]?secret|auth[_-]?token|password)\s*([:=])\s*(?:(['"])([\w\-.~+/]{12,})\3|([\w\-.~+/]{16,})\b)/gi;
+
+  // 7. HIPAA Medical Record Numbers (MRN & Patient IDs)
+  private readonly mrnPattern = /\b(?:MRN|Medical Record(?: Number)?|Patient ID)[:\s#-]+([A-Z0-9-]{6,16})\b/gi;
+
+  // 8. HIPAA Dates of Birth (DOB)
+  private readonly dobPattern = /\b(?:DOB|Date of Birth)[:\s]+(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})\b/gi;
+
+  // 9. Healthcare & Legal Contact Phone Numbers
+  private readonly phonePattern = /\b(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b/g;
+
+  // 10. Healthcare & Legal Emails
+  private readonly emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,7}\b/g;
+
+  // 11. Patient & Client Formal Named Entities
+  private readonly entityNamePattern = /\b(?:Patient|Client|Dr\.|Doctor|Mr\.|Ms\.|Mrs\.)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b/g;
 
   /**
    * Sanitizes sensitive credentials, tokens, private keys, and PII from raw text.
@@ -131,5 +153,103 @@ export class DataSanitizerService {
    */
   hasSensitiveData(text: string): boolean {
     return this.sanitize(text).hasRedactions;
+  }
+
+  /**
+   * Enterprise HIPAA / Legal Safe Harbor Pseudonymization Vault.
+   * Transforms raw PHI and confidential entities into reversible pseudo-tokens.
+   * Zero PII leaves the enterprise boundary while preserving AI reasoning accuracy.
+   */
+  pseudonymize(text: string): PseudonymizationResult {
+    if (!text || typeof text !== 'string') {
+      return {
+        pseudonymizedText: text || '',
+        vaultMap: {},
+        entitiesCount: 0,
+        entityTypes: [],
+      };
+    }
+
+    let result = text;
+    const vaultMap: Record<string, string> = {};
+    const entityTypes = new Set<string>();
+    let counter = 1;
+
+    // 1. First redact hard credentials (AWS keys, Private keys, JWTs) destructively
+    result = this.sanitizeText(result);
+
+    // 2. SSN Reversible Vault
+    result = result.replace(this.ssnPattern, (match) => {
+      const token = `<SSN_REF_${counter++}>`;
+      vaultMap[token] = match;
+      entityTypes.add('SSN');
+      return token;
+    });
+
+    // 3. Medical Record Numbers (MRN)
+    result = result.replace(this.mrnPattern, (fullMatch, mrnValue) => {
+      const token = `<MRN_REF_${counter++}>`;
+      vaultMap[token] = mrnValue;
+      entityTypes.add('MRN');
+      return fullMatch.replace(mrnValue, token);
+    });
+
+    // 4. Dates of Birth (DOB)
+    result = result.replace(this.dobPattern, (fullMatch, dobValue) => {
+      const token = `<DOB_REF_${counter++}>`;
+      vaultMap[token] = dobValue;
+      entityTypes.add('DOB');
+      return fullMatch.replace(dobValue, token);
+    });
+
+    // 5. Healthcare / Legal Named Entities (e.g. "Patient John Doe", "Client Robert Vance")
+    result = result.replace(this.entityNamePattern, (fullMatch, nameValue) => {
+      const token = `<ENTITY_REF_${counter++}>`;
+      vaultMap[token] = nameValue;
+      entityTypes.add('NAMED_ENTITY');
+      return fullMatch.replace(nameValue, token);
+    });
+
+    // 6. Emails
+    result = result.replace(this.emailPattern, (match) => {
+      const token = `<EMAIL_REF_${counter++}>`;
+      vaultMap[token] = match;
+      entityTypes.add('EMAIL');
+      return token;
+    });
+
+    // 7. Phone Numbers
+    result = result.replace(this.phonePattern, (match) => {
+      // Avoid replacing pseudo-tokens or short numbers
+      if (match.length < 8 || match.startsWith('<')) return match;
+      const token = `<PHONE_REF_${counter++}>`;
+      vaultMap[token] = match;
+      entityTypes.add('PHONE');
+      return token;
+    });
+
+    return {
+      pseudonymizedText: result,
+      vaultMap,
+      entitiesCount: Object.keys(vaultMap).length,
+      entityTypes: Array.from(entityTypes),
+    };
+  }
+
+  /**
+   * Rehydrates pseudonymized AI responses on the secure client/authorized doctor side.
+   * Restores original PHI/PII tokens from the session vault.
+   */
+  rehydrate(text: string, vaultMap: Record<string, string>): string {
+    if (!text || !vaultMap || Object.keys(vaultMap).length === 0) {
+      return text || '';
+    }
+
+    let rehydrated = text;
+    for (const [token, originalValue] of Object.entries(vaultMap)) {
+      // Global replace token with original value
+      rehydrated = rehydrated.split(token).join(originalValue);
+    }
+    return rehydrated;
   }
 }

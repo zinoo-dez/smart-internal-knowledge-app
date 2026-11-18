@@ -67,7 +67,7 @@ describe('HybridSearchService (pgvector + tsvector RRF)', () => {
     expect(response.citations[0].chunkId).toBe('c1');
     expect(response.citations[0].relevanceScore).toBeCloseTo(0.0327, 4);
 
-    // Verify tenant organization ID and department ACLs were strictly passed to SQL
+    // Verify tenant organization ID, department ACLs and enterprise ABAC parameters
     expect(mockPrisma.client.$queryRawUnsafe).toHaveBeenCalledWith(
       expect.stringContaining('WITH vector_matches AS'),
       expect.any(String), // vector string
@@ -77,6 +77,11 @@ describe('HybridSearchService (pgvector + tsvector RRF)', () => {
       2,                  // topK
       'ALL',              // userDept
       false,              // isAdmin
+      JSON.stringify(['user-01']), // userIdJson for ethical walls
+      [],                 // allowedMatters
+      false,              // hasMatterFilter
+      [],                 // deniedMatters
+      1,                  // default clearance rank (INTERNAL)
     );
   });
 
@@ -105,6 +110,11 @@ describe('HybridSearchService (pgvector + tsvector RRF)', () => {
       3,
       'ENGINEERING', // user department passed strictly
       false,         // member is not admin
+      JSON.stringify(['eng-01']),
+      [],
+      false,
+      [],
+      1,
     );
   });
 
@@ -133,7 +143,52 @@ describe('HybridSearchService (pgvector + tsvector RRF)', () => {
       5,
       'EXECUTIVE',
       true, // isAdmin bypass is true
+      JSON.stringify(['admin-01']),
+      [],
+      false,
+      [],
+      3, // Admin clearance rank (RESTRICTED)
     );
+  });
+
+  it('should enforce Ethical Wall isolation and block conflicted attorneys via checkAccess', () => {
+    const attorneyA: TenantContext = {
+      organizationId: 'firm-77',
+      userId: 'lawyer-A',
+      userRole: UserRole.ADMIN, // Even Partner/Admin
+      userEmail: 'a@lawfirm.com',
+      deniedMatterIds: ['MATTER-ACQUISITION-XYZ'],
+    };
+
+    const conflictedChunk = {
+      matterId: 'MATTER-ACQUISITION-XYZ',
+      ethicalWallBlockedUsers: ['lawyer-A'],
+      clearanceLevel: 'CONFIDENTIAL',
+    };
+
+    const allowedChunk = {
+      matterId: 'MATTER-LITIGATION-ABC',
+      ethicalWallBlockedUsers: ['lawyer-B'],
+      clearanceLevel: 'INTERNAL',
+    };
+
+    expect(service.checkAccess(attorneyA, conflictedChunk)).toBe(false);
+    expect(service.checkAccess(attorneyA, allowedChunk)).toBe(true);
+  });
+
+  it('should enforce Clearance Level hierarchy (PUBLIC < INTERNAL < CONFIDENTIAL < RESTRICTED)', () => {
+    const paralegal: TenantContext = {
+      organizationId: 'firm-77',
+      userId: 'paralegal-01',
+      userRole: UserRole.MEMBER,
+      userEmail: 'para@lawfirm.com',
+      clearanceLevel: 'INTERNAL' as any,
+    };
+
+    expect(service.checkAccess(paralegal, { clearanceLevel: 'PUBLIC' })).toBe(true);
+    expect(service.checkAccess(paralegal, { clearanceLevel: 'INTERNAL' })).toBe(true);
+    expect(service.checkAccess(paralegal, { clearanceLevel: 'CONFIDENTIAL' })).toBe(false);
+    expect(service.checkAccess(paralegal, { clearanceLevel: 'RESTRICTED' })).toBe(false);
   });
 
   it('should use resilient fallback query when raw vector query fails', async () => {

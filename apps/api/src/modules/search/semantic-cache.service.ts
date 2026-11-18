@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import {
   Department,
   DocumentCitation,
   SemanticCacheStats,
   TenantContext,
 } from '@knowledge/shared';
+import Redis from 'ioredis';
 
 export interface SemanticCacheEntry {
   id: string;
@@ -24,23 +25,76 @@ export interface SemanticCacheMatch {
 }
 
 @Injectable()
-export class SemanticCacheService {
+export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SemanticCacheService.name);
 
-  // In-memory / Redis-backed high-speed vector cache store
+  // In-memory fallback / local fast-path store
   // Key format: `${organizationId}:${department}`
   private cacheStore = new Map<string, SemanticCacheEntry[]>();
 
-  // Metrics trackers
+  // Distributed Redis client (optional, auto-instantiated if REDIS_URL exists)
+  private redisClient: Redis | null = null;
+  private isRedisConnected = false;
+
+  // Local metrics trackers (synced or fallback)
   private hitCounter = new Map<string, number>();
   private missCounter = new Map<string, number>();
 
   private readonly COSINE_SIMILARITY_THRESHOLD = 0.96;
   private readonly MAX_ENTRIES_PER_PARTITION = 250;
+  private readonly REDIS_CACHE_TTL_SECONDS = 604800; // 7 days TTL
+
+  constructor(@Optional() customRedis?: Redis) {
+    if (customRedis) {
+      this.redisClient = customRedis;
+      this.isRedisConnected = true;
+    }
+  }
+
+  onModuleInit(): void {
+    if (!this.redisClient && process.env.REDIS_URL && process.env.NODE_ENV !== 'test') {
+      try {
+        this.redisClient = new Redis(process.env.REDIS_URL, {
+          maxRetriesPerRequest: 1,
+          connectTimeout: 2000,
+          retryStrategy: (times) => (times > 3 ? null : Math.min(times * 200, 1000)),
+          lazyConnect: true,
+        });
+
+        this.redisClient.on('connect', () => {
+          this.isRedisConnected = true;
+          this.logger.log('Connected to Distributed Redis Semantic Cache Cluster.');
+        });
+
+        this.redisClient.on('error', (err: Error) => {
+          this.isRedisConnected = false;
+          this.logger.warn(`Redis Semantic Cache disconnected (${err.message}). Using local in-memory fallback.`);
+        });
+
+        this.redisClient.connect().catch((err: Error) => {
+          this.isRedisConnected = false;
+          this.logger.warn(`Initial Redis connection skipped (${err.message}). Running in-memory mode.`);
+        });
+      } catch (err: unknown) {
+        const error = err as Error;
+        this.logger.warn(`Could not initialize Redis client (${error.message}). Running in-memory mode.`);
+      }
+    }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    if (this.redisClient) {
+      try {
+        await this.redisClient.quit();
+      } catch {
+        this.redisClient.disconnect();
+      }
+    }
+  }
 
   /**
    * Looks up query in the semantic cache using Cosine Similarity on embedding vectors.
-   * Enforces strict multi-tenant and department ACL isolation.
+   * Enforces strict multi-tenant and department ACL isolation across Redis / memory.
    */
   async get(
     tenant: TenantContext,
@@ -51,8 +105,20 @@ export class SemanticCacheService {
     const dept = tenant.department || Department.ALL;
     const partitionKey = `${orgId}:${dept}`;
 
-    const entries = this.cacheStore.get(partitionKey) || [];
-    if (entries.length === 0 || !queryVector || queryVector.length === 0) {
+    if (!queryVector || queryVector.length === 0) {
+      this.recordMiss(orgId);
+      return null;
+    }
+
+    const entries = await this.loadPartitionEntries(partitionKey);
+
+    // Also check company-wide partition (Department.ALL) if user has specific department
+    if (dept !== Department.ALL) {
+      const allEntries = await this.loadPartitionEntries(`${orgId}:${Department.ALL}`);
+      entries.push(...allEntries);
+    }
+
+    if (entries.length === 0) {
       this.recordMiss(orgId);
       return null;
     }
@@ -87,6 +153,7 @@ export class SemanticCacheService {
 
   /**
    * Stores a generated answer and citations in the semantic cache.
+   * Persists to distributed Redis cluster with TTL and in-memory partition.
    */
   async set(
     tenant: TenantContext,
@@ -103,8 +170,6 @@ export class SemanticCacheService {
     const dept = tenant.department || Department.ALL;
     const partitionKey = `${orgId}:${dept}`;
 
-    const existingEntries = this.cacheStore.get(partitionKey) || [];
-
     const newEntry: SemanticCacheEntry = {
       id: `cache-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       query: query.trim(),
@@ -115,9 +180,23 @@ export class SemanticCacheService {
       department: dept,
     };
 
-    // Evict oldest entries if limit reached (LRU semantics)
+    // 1. Update in-memory store
+    const existingEntries = this.cacheStore.get(partitionKey) || [];
     const updated = [newEntry, ...existingEntries].slice(0, this.MAX_ENTRIES_PER_PARTITION);
     this.cacheStore.set(partitionKey, updated);
+
+    // 2. Persist to Redis if available
+    if (this.isRedisConnected && this.redisClient) {
+      try {
+        const redisKey = `semcache:${partitionKey}`;
+        await this.redisClient.lpush(redisKey, JSON.stringify(newEntry));
+        await this.redisClient.ltrim(redisKey, 0, this.MAX_ENTRIES_PER_PARTITION - 1);
+        await this.redisClient.expire(redisKey, this.REDIS_CACHE_TTL_SECONDS);
+      } catch (err: unknown) {
+        const error = err as Error;
+        this.logger.warn(`Redis cache set failed: ${error.message}. Local memory kept.`);
+      }
+    }
 
     this.logger.log(
       `Cached answer in Semantic Cache for query: "${query}" (Partition: ${partitionKey}, Total: ${updated.length})`,
@@ -136,6 +215,22 @@ export class SemanticCacheService {
           evictedCount += entries.length;
           this.cacheStore.delete(key);
         }
+      }
+    }
+
+    // Invalidate in Redis if connected
+    if (this.isRedisConnected && this.redisClient) {
+      try {
+        const pattern = department && department !== Department.ALL
+          ? `semcache:${organizationId}:${department}`
+          : `semcache:${organizationId}:*`;
+        const keys = await this.redisClient.keys(pattern);
+        if (keys.length > 0) {
+          await this.redisClient.del(...keys);
+        }
+      } catch (err: unknown) {
+        const error = err as Error;
+        this.logger.warn(`Redis cache invalidation failed: ${error.message}`);
       }
     }
 
@@ -196,6 +291,37 @@ export class SemanticCacheService {
     }
 
     return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  }
+
+  private async loadPartitionEntries(partitionKey: string): Promise<SemanticCacheEntry[]> {
+    // 1. Check Redis if active
+    if (this.isRedisConnected && this.redisClient) {
+      try {
+        const redisKey = `semcache:${partitionKey}`;
+        const rawItems = await this.redisClient.lrange(redisKey, 0, -1);
+        if (rawItems && rawItems.length > 0) {
+          const parsed = rawItems
+            .map((item) => {
+              try {
+                return JSON.parse(item) as SemanticCacheEntry;
+              } catch {
+                return null;
+              }
+            })
+            .filter((e): e is SemanticCacheEntry => e !== null);
+
+          // Update local memory cache with Redis contents for ultra-fast local hits
+          this.cacheStore.set(partitionKey, parsed);
+          return parsed;
+        }
+      } catch (err: unknown) {
+        const error = err as Error;
+        this.logger.warn(`Redis read failed: ${error.message}. Falling back to memory.`);
+      }
+    }
+
+    // 2. Return from in-memory fallback
+    return this.cacheStore.get(partitionKey) || [];
   }
 
   private recordHit(orgId: string): void {

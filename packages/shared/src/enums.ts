@@ -77,3 +77,15 @@ export enum McpStatus {
   DEGRADED = 'DEGRADED',
 }
 
+export enum ClearanceLevel {
+  PUBLIC = 'PUBLIC',
+  INTERNAL = 'INTERNAL',
+  CONFIDENTIAL = 'CONFIDENTIAL',
+  RESTRICTED = 'RESTRICTED',
+}
+
+export enum ModelComplexityTier {
+  FLASH = 'FLASH',
+  REASONING = 'REASONING',
+}
+

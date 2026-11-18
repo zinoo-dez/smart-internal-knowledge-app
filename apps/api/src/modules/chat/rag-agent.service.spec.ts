@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { RagAgentService } from './rag-agent.service';
-import { DocumentSource, TenantContext, UserRole } from '@knowledge/shared';
+import { Department, DocumentSource, TenantContext, UserRole } from '@knowledge/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AgentToolsService } from './tools/agent-tools.service';
 
@@ -532,6 +532,42 @@ describe('RagAgentService', () => {
           }),
         }),
       );
+    });
+
+    describe('Enterprise Dynamic Model Router & Token Budget Quota Limiter', () => {
+      it('should route simple factual lookups to Flash tier', () => {
+        const simpleQuery = 'What is the guest wifi password?';
+        const route = service.classifyQueryComplexity(simpleQuery);
+
+        expect(route.tier).toBe('FLASH');
+        expect(route.recommendedProvider).toBe('GEMINI');
+        expect(route.recommendedModel).toBe('gemini-3.5-flash-lite');
+      });
+
+      it('should route analytical, legal, and multi-part questions to Claude Reasoning tier', () => {
+        const legalQuery = 'Analyze the liability and indemnity clauses under the new vendor agreement.';
+        const route = service.classifyQueryComplexity(legalQuery);
+
+        expect(route.tier).toBe('REASONING');
+        expect(route.recommendedProvider).toBe('CLAUDE');
+        expect(route.recommendedModel).toContain('claude-3-5-sonnet');
+        expect(route.reason).toContain('reasoning tier');
+      });
+
+      it('should enforce hourly token budget limits and reject consumption when exhausted', () => {
+        const orgId = 'org-scale-10k';
+        const department = Department.ENGINEERING;
+
+        // Consume within limit
+        const res1 = service.checkAndConsumeTokenBudget(orgId, department, 200000);
+        expect(res1.allowed).toBe(true);
+        expect(res1.remainingTokens).toBe(300000);
+
+        // Attempt to exceed 500k limit
+        const res2 = service.checkAndConsumeTokenBudget(orgId, department, 350000);
+        expect(res2.allowed).toBe(false);
+        expect(res2.remainingTokens).toBe(0);
+      });
     });
   });
 });

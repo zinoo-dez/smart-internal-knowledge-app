@@ -42,6 +42,20 @@ export class HybridSearchService {
     const userDept = tenant.department || Department.ALL;
     const isAdmin = tenant.userRole === UserRole.ADMIN;
 
+    // Enterprise ABAC & Ethical Walls parameters
+    const userIdJson = JSON.stringify([tenant.userId]);
+    const allowedMatters = tenant.matterIds || [];
+    const hasMatterFilter = Boolean(tenant.matterIds && tenant.matterIds.length > 0 && !isAdmin);
+    const deniedMatters = tenant.deniedMatterIds || [];
+    const clearanceRanks: Record<string, number> = {
+      PUBLIC: 0,
+      INTERNAL: 1,
+      CONFIDENTIAL: 2,
+      RESTRICTED: 3,
+    };
+    const userClearance = tenant.clearanceLevel || (isAdmin ? 'RESTRICTED' : 'INTERNAL');
+    const userClearanceRank = clearanceRanks[userClearance.toUpperCase()] ?? 1;
+
     // 1. Generate query embedding vector
     const queryVector = await this.embeddingService.embedText(dto.query);
     const vectorString = `[${queryVector.join(',')}]`;
@@ -50,7 +64,7 @@ export class HybridSearchService {
       // If rerank service is active, fetch candidate pool for 2nd stage scoring; otherwise topK
       const fetchLimit = this.rerankService ? candidateLimit : topK;
 
-      // 2. Execute PostgreSQL Native Hybrid Search with Reciprocal Rank Fusion (RRF) & Department ACLs
+      // 2. Execute PostgreSQL Native Hybrid Search with Reciprocal Rank Fusion (RRF), Department ACLs & ABAC Ethical Walls
       const rawResults = await this.prisma.client.$queryRawUnsafe<RawSearchResult[]>(
         `WITH vector_matches AS (
            SELECT 
@@ -66,6 +80,16 @@ export class HybridSearchService {
            WHERE c."organizationId" = $2
              AND c.embedding IS NOT NULL
              AND (c.department = 'ALL' OR c.department::text = $6 OR $7 = true)
+             AND (c.metadata->'ethicalWallBlockedUsers' IS NULL OR NOT (c.metadata->'ethicalWallBlockedUsers' @> $8::jsonb))
+             AND (c.metadata->>'matterId' IS NULL OR NOT (c.metadata->>'matterId' = ANY($11::text[])))
+             AND (c.metadata->>'matterId' IS NULL OR $10 = false OR c.metadata->>'matterId' = ANY($9::text[]))
+             AND (c.metadata->>'clearanceLevel' IS NULL OR 
+                  CASE c.metadata->>'clearanceLevel'
+                    WHEN 'RESTRICTED' THEN 3
+                    WHEN 'CONFIDENTIAL' THEN 2
+                    WHEN 'INTERNAL' THEN 1
+                    ELSE 0
+                  END <= $12)
            ORDER BY c.embedding <=> $1::vector
            LIMIT $3
          ),
@@ -83,6 +107,16 @@ export class HybridSearchService {
            WHERE c."organizationId" = $2
              AND (c.tsv @@ plainto_tsquery('english', $4) OR c.tsv @@ plainto_tsquery('simple', $4) OR c.content ILIKE '%' || $4 || '%')
              AND (c.department = 'ALL' OR c.department::text = $6 OR $7 = true)
+             AND (c.metadata->'ethicalWallBlockedUsers' IS NULL OR NOT (c.metadata->'ethicalWallBlockedUsers' @> $8::jsonb))
+             AND (c.metadata->>'matterId' IS NULL OR NOT (c.metadata->>'matterId' = ANY($11::text[])))
+             AND (c.metadata->>'matterId' IS NULL OR $10 = false OR c.metadata->>'matterId' = ANY($9::text[]))
+             AND (c.metadata->>'clearanceLevel' IS NULL OR 
+                  CASE c.metadata->>'clearanceLevel'
+                    WHEN 'RESTRICTED' THEN 3
+                    WHEN 'CONFIDENTIAL' THEN 2
+                    WHEN 'INTERNAL' THEN 1
+                    ELSE 0
+                  END <= $12)
            LIMIT $3
          )
          SELECT 
@@ -104,6 +138,11 @@ export class HybridSearchService {
         fetchLimit,
         userDept,
         isAdmin,
+        userIdJson,
+        allowedMatters,
+        hasMatterFilter,
+        deniedMatters,
+        userClearanceRank,
       );
 
       let citations: DocumentCitation[] = (rawResults || [])
@@ -158,5 +197,51 @@ export class HybridSearchService {
         return { citations: [] };
       }
     }
+  }
+
+  /**
+   * Evaluates Enterprise ABAC & Ethical Wall access for an individual chunk.
+   * Enforces zero-leakage security boundaries across Matter IDs, blocked users, and clearance levels.
+   */
+  checkAccess(
+    tenant: TenantContext,
+    chunkMetadata?: Record<string, unknown> | null,
+  ): boolean {
+    if (!chunkMetadata) return true;
+
+    // 1. Strict Ethical Wall Exclusion: Block if user is explicitly walled off (cannot be bypassed by ADMIN)
+    if (Array.isArray(chunkMetadata.ethicalWallBlockedUsers)) {
+      if (chunkMetadata.ethicalWallBlockedUsers.includes(tenant.userId)) {
+        return false;
+      }
+    }
+
+    // 2. Denied Matters (Conflicting litigation / cases)
+    const matterId = chunkMetadata.matterId as string | undefined;
+    if (matterId && tenant.deniedMatterIds && tenant.deniedMatterIds.includes(matterId)) {
+      return false;
+    }
+
+    // 3. Allowed Matters Check (if user has restricted matter permissions)
+    if (matterId && tenant.matterIds && tenant.matterIds.length > 0) {
+      if (!tenant.matterIds.includes(matterId) && tenant.userRole !== UserRole.ADMIN) {
+        return false;
+      }
+    }
+
+    // 4. Clearance Level Enforcement
+    const clearanceLevel = (chunkMetadata.clearanceLevel as string) || 'INTERNAL';
+    const clearanceRanks: Record<string, number> = {
+      PUBLIC: 0,
+      INTERNAL: 1,
+      CONFIDENTIAL: 2,
+      RESTRICTED: 3,
+    };
+    const requiredRank = clearanceRanks[clearanceLevel.toUpperCase()] ?? 1;
+    const userClearance =
+      tenant.clearanceLevel || (tenant.userRole === UserRole.ADMIN ? 'RESTRICTED' : 'INTERNAL');
+    const userRank = clearanceRanks[userClearance.toUpperCase()] ?? 1;
+
+    return userRank >= requiredRank;
   }
 }

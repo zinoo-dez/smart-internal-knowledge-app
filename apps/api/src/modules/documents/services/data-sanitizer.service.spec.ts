@@ -126,4 +126,42 @@ Normal paragraph with general instructions about restarting services.
       expect(sanitizer.sanitizeText('')).toBe('');
     });
   });
+
+  describe('HIPAA & Legal Safe Harbor Pseudonymization Vault', () => {
+    it('should pseudonymize clinical health record and allow 100% accurate rehydration', () => {
+      const clinicalChart = `
+Clinical Note:
+Patient John Doe (DOB: 12/04/1982) was admitted to cardiology.
+Medical Record: MRN-984721.
+Contact emergency contact at 555-432-8899 or email care@hospital.org.
+Diagnosed with acute pericarditis.
+`;
+
+      const result = sanitizer.pseudonymize(clinicalChart);
+
+      expect(result.entitiesCount).toBeGreaterThanOrEqual(4);
+      expect(result.entityTypes).toContain('NAMED_ENTITY');
+      expect(result.entityTypes).toContain('MRN');
+      expect(result.entityTypes).toContain('DOB');
+      expect(result.entityTypes).toContain('EMAIL');
+
+      // Ensure PHI never appears in the pseudonymized text sent to LLM
+      expect(result.pseudonymizedText).not.toContain('John Doe');
+      expect(result.pseudonymizedText).not.toContain('12/04/1982');
+      expect(result.pseudonymizedText).not.toContain('984721');
+      expect(result.pseudonymizedText).not.toContain('care@hospital.org');
+
+      // Clinical diagnosis is preserved for AI reasoning
+      expect(result.pseudonymizedText).toContain('Diagnosed with acute pericarditis');
+
+      // Simulate LLM answering using pseudo-tokens
+      const patientToken = Object.keys(result.vaultMap).find((k) => result.vaultMap[k] === 'John Doe');
+      expect(patientToken).toBeDefined();
+
+      const mockLlmAnswer = `Based on the record, ${patientToken} was admitted with acute pericarditis.`;
+      const rehydrated = sanitizer.rehydrate(mockLlmAnswer, result.vaultMap);
+
+      expect(rehydrated).toContain('John Doe');
+    });
+  });
 });

@@ -1,4 +1,15 @@
-import { Department, DocumentSource, FeedbackType, IngestionStatus, McpStatus, McpTransport, TicketStatus, UserRole } from './enums';
+import {
+  ClearanceLevel,
+  Department,
+  DocumentSource,
+  FeedbackType,
+  IngestionStatus,
+  McpStatus,
+  McpTransport,
+  ModelComplexityTier,
+  TicketStatus,
+  UserRole,
+} from './enums';
 
 // Auth & Tenant Context
 export interface TenantContext {
@@ -7,6 +18,9 @@ export interface TenantContext {
   userRole: UserRole;
   userEmail: string;
   department?: Department;
+  matterIds?: string[]; // Legal matter IDs authorized for user
+  deniedMatterIds?: string[]; // Ethical walls blocked matters
+  clearanceLevel?: ClearanceLevel;
 }
 
 // Ingestion Contracts
