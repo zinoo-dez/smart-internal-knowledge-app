@@ -12,6 +12,7 @@ import {
   FileText,
   ShieldCheck,
   AlertCircle,
+  HelpCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/context/language-context';
@@ -56,6 +57,12 @@ export function AppShell({ children }: AppShellProps) {
       href: '/admin/audit-logs',
       icon: ShieldCheck,
       active: pathname.startsWith('/admin/audit-logs'),
+    },
+    {
+      label: t.navDocs,
+      href: '/docs',
+      icon: HelpCircle,
+      active: pathname.startsWith('/docs'),
     },
   ];
 

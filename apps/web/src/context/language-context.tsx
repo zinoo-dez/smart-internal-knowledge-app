@@ -14,9 +14,20 @@ interface Translations {
   navKnowledgeGaps: string;
   navAnalytics: string;
   navAuditLogs: string;
+  navDocs: string;
   multiTenantActive: string;
   roleAdmin: string;
   languageLabel: string;
+
+  // Documentation Web Hub
+  docsTitle: string;
+  docsSubtitle: string;
+  docsTabGuide: string;
+  docsTabTerms: string;
+  docsTabPrivacy: string;
+  docsTabCookies: string;
+  docsCtaChat: string;
+  docsLegalDisclaimer: string;
 
   // Chat Interface
   chatWelcomeTitle: string;
@@ -61,9 +72,20 @@ const TRANSLATIONS: Record<Language, Translations> = {
     navKnowledgeGaps: 'Knowledge Gaps',
     navAnalytics: 'Usage & Analytics',
     navAuditLogs: 'Audit & Compliance',
+    navDocs: 'Help & Guides',
     multiTenantActive: 'Multi-Tenant Active',
     roleAdmin: 'Role: ADMIN',
     languageLabel: 'Language',
+
+    docsTitle: 'Help Center & Documentation',
+    docsSubtitle: 'Zero-knowledge user guides, workflow walkthroughs, and legal compliance policies.',
+    docsTabGuide: 'User Guide',
+    docsTabTerms: 'Terms & Conditions',
+    docsTabPrivacy: 'Privacy Policy',
+    docsTabCookies: 'Cookies & Storage',
+    docsCtaChat: 'Open AI Assistant',
+    docsLegalDisclaimer:
+      'This is an AI-generated template for baseline compliance. For full production enterprise release, please have this reviewed by a qualified legal professional.',
 
     chatWelcomeTitle: 'Hello! I am your Smart Internal Knowledge Assistant.',
     chatWelcomeDesc:
@@ -105,9 +127,20 @@ const TRANSLATIONS: Record<Language, Translations> = {
     navKnowledgeGaps: 'မေးခွန်းလိုအပ်ချက်များ',
     navAnalytics: 'အသုံးပြုမှုနှင့် သုံးသပ်ချက်',
     navAuditLogs: 'လုံခြုံရေးနှင့် စစ်ဆေးမှု',
+    navDocs: 'အကူအညီနှင့် လမ်းညွှန်',
     multiTenantActive: 'လုပ်ငန်းစနစ် လည်ပတ်နေသည်',
     roleAdmin: 'ရာထူး: အက်ဒမင်',
     languageLabel: 'ဘာသာစကား',
+
+    docsTitle: 'အကူအညီနှင့် လမ်းညွှန်မှတ်တမ်းများ',
+    docsSubtitle: 'အသုံးပြုနည်း လမ်းညွှန်များ၊ အဆင့်ဆင့် လိုက်နာဆောင်ရွက်ပုံများနှင့် ဥပဒေရေးရာ မူဝါဒများ။',
+    docsTabGuide: 'အသုံးပြုနည်း လမ်းညွှန်',
+    docsTabTerms: 'အသုံးပြုမှု စည်းမျဉ်းများ',
+    docsTabPrivacy: 'ပုဂ္ဂိုလ်ရေး လုံခြုံမှု မူဝါဒ',
+    docsTabCookies: 'ကွတ်ကီးနှင့် သိမ်းဆည်းမှု',
+    docsCtaChat: 'AI လက်ထောက်ကို သုံးမည်',
+    docsLegalDisclaimer:
+      'ဤစာတမ်းသည် AI စနစ်ဖြင့် အခြေခံလိုက်နာရန် ရေးဆွဲထားသော စံပြမူကြမ်းသာ ဖြစ်ပါသည်။ လုပ်ငန်းခွင် အပြည့်အဝ တရားဝင် ထုတ်ပြန်အသုံးပြုရန်အတွက် အရည်အချင်းပြည့်မီသော ဥပဒေအကြံပေးပညာရှင်နှင့် စစ်ဆေးအတည်ပြုရန် လိုအပ်ပါသည်။',
 
     chatWelcomeTitle: 'မင်္ဂလာပါ! ကျွန်ုပ်သည် ကုမ္ပဏီ၏ AI လက်ထောက်ဖြစ်ပါသည်။',
     chatWelcomeDesc:
