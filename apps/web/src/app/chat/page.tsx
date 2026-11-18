@@ -126,7 +126,7 @@ interface ChatMessage {
 }
 
 export default function ChatPage() {
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -164,6 +164,19 @@ export default function ChatPage() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [isModelDropdownOpen]);
+
+  // Keyboard accessibility: Escape key closes overlays
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (isModelDropdownOpen) setIsModelDropdownOpen(false);
+        if (selectedCitation) setSelectedCitation(null);
+        if (ticketModalOpen) setTicketModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isModelDropdownOpen, selectedCitation, ticketModalOpen]);
 
   const toggleToolAccordion = (msgId: string) => {
     setOpenAccordions((prev) => ({ ...prev, [msgId]: !prev[msgId] }));
@@ -478,32 +491,34 @@ export default function ChatPage() {
 
   const promptSuggestions = [
     {
-      icon: <Database className="w-4 h-4" />,
+      icon: <Database className="w-4 h-4" aria-hidden="true" />,
       text: t.suggestionAws,
     },
     {
-      icon: <Shield className="w-4 h-4" />,
+      icon: <Shield className="w-4 h-4" aria-hidden="true" />,
       text: t.suggestionVpn,
     },
     {
-      icon: <Calendar className="w-4 h-4" />,
+      icon: <Calendar className="w-4 h-4" aria-hidden="true" />,
       text: t.suggestionLeave,
     },
     {
-      icon: <Cpu className="w-4 h-4" />,
+      icon: <Cpu className="w-4 h-4" aria-hidden="true" />,
       text: t.suggestionDbLive,
     },
     {
-      icon: <Sparkles className="w-4 h-4" />,
+      icon: <Sparkles className="w-4 h-4" aria-hidden="true" />,
       text: t.suggestionMyanmarLeave,
     },
   ];
 
   const isWelcomeState = messages.length === 0;
 
-  // Render floating Model Dropdown Card matching Gemini Reference UI
+  // Render floating Model Dropdown Card matching Gemini Reference UI with full ARIA semantics
   const renderModelDropdownCard = (positionClasses: string) => (
     <div
+      role="listbox"
+      aria-label="AI Model Options"
       className={`absolute ${positionClasses} z-40 w-72 bg-white rounded-2xl shadow-xl border border-slate-200/90 p-2 text-xs divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-150`}
     >
       <div className="py-1 space-y-0.5">
@@ -513,6 +528,9 @@ export default function ChatPage() {
             <button
               key={model.id}
               type="button"
+              role="option"
+              aria-selected={isSelected}
+              aria-label={`${model.purposeTitle}, ${model.subtitle}${model.isLocked ? ' (Enterprise Plan Required)' : ''}`}
               onClick={() => {
                 if (model.isLocked) {
                   setLockedNotice(`${model.name} requires an Enterprise plan. Upgrade in Plans & Billing.`);
@@ -522,14 +540,14 @@ export default function ChatPage() {
                 setSelectedModel(model);
                 setIsModelDropdownOpen(false);
               }}
-              className={`w-full text-left px-3 py-2 rounded-xl flex items-center gap-2.5 transition-colors ${
+              className={`w-full text-left px-3 py-2 rounded-xl flex items-center gap-2.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                 isSelected
                   ? 'bg-slate-100/90 font-semibold text-slate-900 border border-slate-200/70'
                   : 'hover:bg-slate-50 text-slate-700'
               } ${model.isLocked ? 'opacity-70' : ''}`}
             >
               {/* Left Indicator: Checkmark for Selected, Lock for Locked, Spacer for others */}
-              <div className="w-4 h-4 flex items-center justify-center shrink-0">
+              <div className="w-4 h-4 flex items-center justify-center shrink-0" aria-hidden="true">
                 {isSelected ? (
                   <Check className="w-4 h-4 text-slate-900" />
                 ) : model.isLocked ? (
@@ -552,7 +570,7 @@ export default function ChatPage() {
       </div>
 
       {lockedNotice && (
-        <div className="p-2 text-[11px] text-amber-700 bg-amber-50 rounded-lg font-medium leading-tight my-1">
+        <div role="status" aria-live="polite" className="p-2 text-[11px] text-amber-700 bg-amber-50 rounded-lg font-medium leading-tight my-1">
           {lockedNotice}
         </div>
       )}
@@ -561,18 +579,19 @@ export default function ChatPage() {
       <div className="pt-2 pb-1 px-1">
         <button
           type="button"
+          aria-label={`Thinking level: currently set to ${thinkingLevel === 'deep' ? 'Deep' : 'Standard'}. Click to toggle.`}
           onClick={() => setThinkingLevel((prev) => (prev === 'deep' ? 'normal' : 'deep'))}
-          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-50 text-slate-700 text-xs transition-colors"
+          className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-50 text-slate-700 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
         >
           <span className="font-medium flex items-center gap-1.5 text-slate-700">
-            <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+            <Sparkles className="w-3.5 h-3.5 text-blue-600" aria-hidden="true" />
             <span>{t.thinkingLevel}</span>
           </span>
           <div className="flex items-center gap-1">
             <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200/60">
               {thinkingLevel === 'deep' ? 'Deep' : 'Standard'}
             </span>
-            <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+            <ChevronRight className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
           </div>
         </button>
       </div>
@@ -583,6 +602,7 @@ export default function ChatPage() {
     <div className="flex h-[calc(100vh-6rem)] gap-4 relative">
       {/* Left: Thread History Sidebar */}
       <aside
+        aria-label="Conversation history"
         className={`shrink-0 transition-all duration-200 flex flex-col bg-white rounded-xl border border-slate-200/80 shadow-xs overflow-hidden ${
           isSidebarOpen ? 'w-64' : 'w-0 border-none'
         }`}
@@ -593,20 +613,23 @@ export default function ChatPage() {
             <button
               onClick={handleNewChat}
               disabled={isStreaming}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors min-h-[40px]"
+              aria-label={t.newConversation}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4" aria-hidden="true" />
               <span>{t.newConversation}</span>
             </button>
 
             {/* Threads Header */}
             <div className="flex items-center justify-between px-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
               <span>{t.pastConversations}</span>
-              <span className="font-mono text-slate-500">{conversations.length}</span>
+              <span className="font-mono text-slate-500" aria-label={`${conversations.length} total saved conversations`}>
+                {conversations.length}
+              </span>
             </div>
 
             {/* Threads List */}
-            <div className="flex-1 overflow-y-auto space-y-1">
+            <nav aria-label="Past conversations" className="flex-1 overflow-y-auto space-y-1">
               {conversations.length === 0 ? (
                 <div className="text-center py-8 text-xs text-slate-400">
                   {t.noConversations}
@@ -618,7 +641,16 @@ export default function ChatPage() {
                     <div
                       key={thread.id}
                       onClick={() => handleSelectThread(thread.id)}
-                      className={`group flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer transition-colors ${
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          handleSelectThread(thread.id);
+                        }
+                      }}
+                      aria-current={isActive ? 'true' : undefined}
+                      aria-label={`Open conversation: ${thread.title}`}
+                      className={`group flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                         isActive
                           ? 'bg-blue-50 text-blue-900 font-semibold border border-blue-200/60'
                           : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
@@ -626,6 +658,7 @@ export default function ChatPage() {
                     >
                       <div className="flex items-center gap-2 truncate min-w-0">
                         <MessageSquare
+                          aria-hidden="true"
                           className={`w-3.5 h-3.5 shrink-0 ${
                             isActive ? 'text-blue-600' : 'text-slate-400'
                           }`}
@@ -634,38 +667,44 @@ export default function ChatPage() {
                       </div>
                       <button
                         onClick={(e) => handleDeleteThread(thread.id, e)}
-                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-600 transition-opacity shrink-0"
+                        aria-label={`Delete conversation: ${thread.title}`}
+                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-600 transition-opacity shrink-0 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 rounded"
                         title="Delete conversation"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
                       </button>
                     </div>
                   );
                 })
               )}
-            </div>
+            </nav>
           </div>
         )}
       </aside>
 
       {/* Main Screen Container */}
-      <div className="flex-1 flex flex-col min-w-0 bg-white rounded-xl border border-slate-200/80 shadow-xs relative overflow-hidden">
+      <main
+        aria-label="Assistant workspace"
+        className="flex-1 flex flex-col min-w-0 bg-white rounded-xl border border-slate-200/80 shadow-xs relative overflow-hidden"
+      >
         {/* Top Header Bar */}
-        <div className="px-4 py-3 border-b border-slate-200/80 shrink-0 flex items-center justify-between">
+        <header className="px-4 py-3 border-b border-slate-200/80 shrink-0 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
+              aria-label={isSidebarOpen ? 'Hide conversation sidebar' : 'Show conversation sidebar'}
+              aria-expanded={isSidebarOpen}
+              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
               title={isSidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
             >
               {isSidebarOpen ? (
-                <PanelLeftClose className="w-4 h-4" />
+                <PanelLeftClose className="w-4 h-4" aria-hidden="true" />
               ) : (
-                <PanelLeftOpen className="w-4 h-4" />
+                <PanelLeftOpen className="w-4 h-4" aria-hidden="true" />
               )}
             </button>
             <div className="flex items-center gap-2">
-              <Bot className="w-4 h-4 text-blue-600" />
+              <Bot className="w-4 h-4 text-blue-600" aria-hidden="true" />
               <span className="text-xs font-semibold text-slate-800 tracking-tight">
                 {t.appTitle}
               </span>
@@ -680,15 +719,16 @@ export default function ChatPage() {
               <button
                 onClick={handleNewChat}
                 disabled={isStreaming}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                aria-label={t.newConversation}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
               >
-                <Plus className="w-3.5 h-3.5" />
+                <Plus className="w-3.5 h-3.5" aria-hidden="true" />
                 <span className="hidden sm:inline">{t.newConversation}</span>
               </button>
             )}
             <LanguageSwitcher />
           </div>
-        </div>
+        </header>
 
         {/* View Switch: Center-Stage Empty State vs Active Message Stream */}
         {isWelcomeState ? (
@@ -703,6 +743,8 @@ export default function ChatPage() {
             {/* Omnibox Floating Pill Container */}
             <div className="w-full max-w-2xl relative" ref={modelDropdownRef}>
               <form
+                role="search"
+                aria-label="Internal Knowledge Search"
                 onSubmit={(e) => {
                   e.preventDefault();
                   handleSend();
@@ -713,15 +755,17 @@ export default function ChatPage() {
                   {/* Plus Action Button */}
                   <button
                     type="button"
-                    className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-100 text-slate-500 transition-colors shrink-0"
+                    aria-label="Attach context or documents"
+                    className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-100 text-slate-500 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                     title="Attach context or documents"
                   >
-                    <Plus className="w-4 h-4" />
+                    <Plus className="w-4 h-4" aria-hidden="true" />
                   </button>
 
                   {/* Input Query */}
                   <input
                     type="text"
+                    aria-label={t.inputPlaceholder}
                     placeholder={t.inputPlaceholder}
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -734,11 +778,15 @@ export default function ChatPage() {
                   <div className="relative">
                     <button
                       type="button"
+                      aria-haspopup="listbox"
+                      aria-expanded={isModelDropdownOpen}
+                      aria-label={`Select AI Model. Current model is ${selectedModel.name}`}
                       onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                      className="rounded-full bg-slate-100/90 hover:bg-slate-200/80 px-3 py-1.5 text-xs font-semibold text-slate-700 flex items-center gap-1.5 transition-colors shrink-0 border border-slate-200/60"
+                      className="rounded-full bg-slate-100/90 hover:bg-slate-200/80 px-3 py-1.5 text-xs font-semibold text-slate-700 flex items-center gap-1.5 transition-colors shrink-0 border border-slate-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                     >
                       <span>{selectedModel.shortLabel}</span>
                       <ChevronDown
+                        aria-hidden="true"
                         className={`w-3.5 h-3.5 text-slate-500 transition-transform ${
                           isModelDropdownOpen ? 'rotate-180' : ''
                         }`}
@@ -754,28 +802,32 @@ export default function ChatPage() {
                     <button
                       type="submit"
                       disabled={isStreaming}
-                      className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors shrink-0 shadow-xs"
+                      aria-label="Send query to AI Assistant"
+                      className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors shrink-0 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                     >
-                      <Send className="w-3.5 h-3.5" />
+                      <Send className="w-3.5 h-3.5" aria-hidden="true" />
                     </button>
                   ) : (
                     <button
                       type="button"
-                      className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
+                      aria-label="Voice input query"
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                       title="Voice input"
                     >
-                      <Mic className="w-4 h-4" />
+                      <Mic className="w-4 h-4" aria-hidden="true" />
                     </button>
                   )}
                 </div>
               </form>
 
               {/* Mode Switcher Pills */}
-              <div className="flex items-center justify-center gap-2 mt-4">
+              <div role="tablist" aria-label="Assistant modes" className="flex items-center justify-center gap-2 mt-4">
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={activeMode === 'chat'}
                   onClick={() => setActiveMode('chat')}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all ${
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                     activeMode === 'chat'
                       ? 'bg-slate-100 text-slate-900 font-semibold border border-slate-300/80 shadow-xs'
                       : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/70'
@@ -785,40 +837,45 @@ export default function ChatPage() {
                 </button>
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={activeMode === 'tools'}
                   onClick={() => setActiveMode('tools')}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                     activeMode === 'tools'
                       ? 'bg-blue-50 text-blue-900 font-semibold border border-blue-200 shadow-xs'
                       : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/70'
                   }`}
                 >
-                  <Cpu className="w-3.5 h-3.5 text-blue-600" />
+                  <Cpu className="w-3.5 h-3.5 text-blue-600" aria-hidden="true" />
                   <span>{t.geminiModeTools}</span>
                 </button>
                 <button
                   type="button"
+                  role="tab"
+                  aria-selected={activeMode === 'research'}
                   onClick={() => setActiveMode('research')}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 ${
+                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                     activeMode === 'research'
                       ? 'bg-indigo-50 text-indigo-900 font-semibold border border-indigo-200 shadow-xs'
                       : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/70'
                   }`}
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-600" aria-hidden="true" />
                   <span>{t.geminiModeResearch}</span>
                 </button>
               </div>
 
               {/* Vertical Prompt Cards (Inspired by Gemini Reference UI) */}
-              <div className="mt-8 space-y-1 max-w-xl mx-auto">
+              <div aria-label="Suggested prompts" className="mt-8 space-y-1 max-w-xl mx-auto">
                 {promptSuggestions.map((item, idx) => (
                   <button
                     key={idx}
                     type="button"
+                    aria-label={`Suggested inquiry: ${item.text}`}
                     onClick={() => handleSend(item.text)}
-                    className="w-full flex items-center gap-3.5 py-2.5 px-3 rounded-xl hover:bg-slate-100/60 text-left transition-all text-slate-600 hover:text-slate-900 group"
+                    className="w-full flex items-center gap-3.5 py-2.5 px-3 rounded-xl hover:bg-slate-100/60 text-left transition-all text-slate-600 hover:text-slate-900 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                   >
-                    <span className="text-slate-400 group-hover:text-blue-600 transition-colors shrink-0">
+                    <span className="text-slate-400 group-hover:text-blue-600 transition-colors shrink-0" aria-hidden="true">
                       {item.icon}
                     </span>
                     <span className="text-sm font-normal truncate">
@@ -833,7 +890,12 @@ export default function ChatPage() {
           /* Active Conversation Stream + Docked Floating Omnibox */
           <div className="flex-1 flex flex-col min-h-0 relative">
             {/* Scrollable Message List */}
-            <div className="flex-1 overflow-y-auto px-4 py-6 space-y-6">
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label="Conversation message stream"
+              className="flex-1 overflow-y-auto px-4 py-6 space-y-6 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-300"
+            >
               {messages.map((msg) => (
                 <div
                   key={msg.id}
@@ -843,6 +905,7 @@ export default function ChatPage() {
                 >
                   {/* Avatar */}
                   <div
+                    aria-hidden="true"
                     className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-xs font-semibold ${
                       msg.role === 'user'
                         ? 'bg-blue-600 text-white shadow-xs'
@@ -868,8 +931,12 @@ export default function ChatPage() {
                     {msg.activeTool && (
                       <div className="mb-3">
                         {msg.activeTool.status === 'running' && (
-                          <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-xs flex items-center gap-2">
-                            <Cpu className="w-3.5 h-3.5 text-blue-600 animate-spin flex-shrink-0" />
+                          <div
+                            role="status"
+                            aria-live="polite"
+                            className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-xs flex items-center gap-2"
+                          >
+                            <Cpu className="w-3.5 h-3.5 text-blue-600 animate-spin flex-shrink-0" aria-hidden="true" />
                             <span>
                               Calling MCP Tool: <strong className="font-mono">{msg.activeTool.name}</strong>...
                             </span>
@@ -877,9 +944,13 @@ export default function ChatPage() {
                         )}
 
                         {msg.activeTool.status === 'approval_required' && (
-                          <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-2">
-                            <div className="flex items-center gap-1.5 font-bold text-amber-900">
-                              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                          <div
+                            role="alertdialog"
+                            aria-labelledby={`hitl-title-${msg.id}`}
+                            className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-2"
+                          >
+                            <div id={`hitl-title-${msg.id}`} className="flex items-center gap-1.5 font-bold text-amber-900">
+                              <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0" aria-hidden="true" />
                               <span>Action Approval Required (Human-in-the-Loop)</span>
                             </div>
                             <p className="text-amber-800 leading-relaxed">
@@ -894,13 +965,15 @@ export default function ChatPage() {
                             <div className="flex items-center gap-2 pt-1">
                               <button
                                 onClick={() => handleApproveAction(msg.id)}
-                                className="px-3 py-1.5 rounded-md bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-colors shadow-xs min-h-[32px]"
+                                aria-label={`Approve execution of tool ${msg.activeTool.name}`}
+                                className="px-3 py-1.5 rounded-md bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-colors shadow-xs min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
                               >
                                 Approve & Execute
                               </button>
                               <button
                                 onClick={() => handleRejectAction(msg.id)}
-                                className="px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-colors min-h-[32px]"
+                                aria-label={`Cancel execution of tool ${msg.activeTool.name}`}
+                                className="px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-colors min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
                               >
                                 Cancel
                               </button>
@@ -912,10 +985,12 @@ export default function ChatPage() {
                           <div className="rounded-lg border border-slate-200 bg-slate-50 overflow-hidden text-xs">
                             <button
                               onClick={() => toggleToolAccordion(msg.id)}
-                              className="w-full px-3 py-2 flex items-center justify-between bg-slate-100 hover:bg-slate-200/70 text-slate-700 transition-colors min-h-[36px]"
+                              aria-expanded={openAccordions[msg.id]}
+                              aria-label={`Toggle execution details for MCP tool ${msg.activeTool.name}`}
+                              className="w-full px-3 py-2 flex items-center justify-between bg-slate-100 hover:bg-slate-200/70 text-slate-700 transition-colors min-h-[36px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                             >
                               <div className="flex items-center gap-1.5">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" aria-hidden="true" />
                                 <span className="font-medium text-slate-600">MCP Tool:</span>
                                 <span className="font-mono font-bold text-slate-900">{msg.activeTool.name}</span>
                                 {msg.activeTool.latencyMs !== undefined && (
@@ -925,6 +1000,7 @@ export default function ChatPage() {
                                 )}
                               </div>
                               <ChevronDown
+                                aria-hidden="true"
                                 className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
                                   openAccordions[msg.id] ? 'rotate-180' : ''
                                 }`}
@@ -971,9 +1047,9 @@ export default function ChatPage() {
 
                     {/* Citations list for assistant messages */}
                     {msg.citations && msg.citations.length > 0 && (
-                      <div className="mt-4 pt-3 border-t border-slate-100">
+                      <nav aria-label="Cited Sources" className="mt-4 pt-3 border-t border-slate-100">
                         <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                          <BookOpen className="w-3.5 h-3.5 text-blue-600" />
+                          <BookOpen className="w-3.5 h-3.5 text-blue-600" aria-hidden="true" />
                           <span>{t.citedSources}:</span>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -981,14 +1057,15 @@ export default function ChatPage() {
                             <button
                               key={idx}
                               onClick={() => setSelectedCitation(c)}
-                              className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium border border-blue-100 hover:bg-blue-100 transition-colors"
+                              aria-label={`Inspect source citation ${idx + 1}: ${c.documentTitle}`}
+                              className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium border border-blue-100 hover:bg-blue-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                             >
                               <span>[{idx + 1}]</span>
                               <span className="truncate max-w-[200px]">{c.documentTitle}</span>
                             </button>
                           ))}
                         </div>
-                      </div>
+                      </nav>
                     )}
 
                     {/* Assistant Message Actions & Feedback */}
@@ -998,25 +1075,29 @@ export default function ChatPage() {
                           <button
                             onClick={() => handleFeedback(msg.id, msg.queryLogId, FeedbackType.THUMBS_UP)}
                             disabled={!!msg.feedbackGiven}
-                            className={`p-1 rounded hover:bg-slate-100 transition-colors ${
+                            aria-label={t.feedbackHelpful}
+                            className={`p-1.5 rounded hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                               msg.feedbackGiven === 'UP' ? 'text-emerald-600 font-bold' : ''
                             }`}
                             title={t.feedbackHelpful}
                           >
-                            <ThumbsUp className="w-3.5 h-3.5" />
+                            <ThumbsUp className="w-3.5 h-3.5" aria-hidden="true" />
                           </button>
                           <button
                             onClick={() => handleFeedback(msg.id, msg.queryLogId, FeedbackType.THUMBS_DOWN)}
                             disabled={!!msg.feedbackGiven}
-                            className={`p-1 rounded hover:bg-slate-100 transition-colors ${
+                            aria-label={t.feedbackUnhelpful}
+                            className={`p-1.5 rounded hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                               msg.feedbackGiven === 'DOWN' ? 'text-rose-600 font-bold' : ''
                             }`}
                             title={t.feedbackUnhelpful}
                           >
-                            <ThumbsDown className="w-3.5 h-3.5" />
+                            <ThumbsDown className="w-3.5 h-3.5" aria-hidden="true" />
                           </button>
                           {msg.feedbackGiven && (
-                            <span className="text-[11px] text-slate-500">Thank you for feedback!</span>
+                            <span role="status" aria-live="polite" className="text-[11px] text-slate-500">
+                              Thank you for feedback!
+                            </span>
                           )}
                         </div>
 
@@ -1025,9 +1106,10 @@ export default function ChatPage() {
                             setTicketTitle('Escalated inquiry: ' + (messages[messages.length - 2]?.content || ''));
                             setTicketModalOpen(true);
                           }}
-                          className="inline-flex items-center gap-1 text-slate-500 hover:text-blue-600 font-medium"
+                          aria-label={t.openTicket}
+                          className="inline-flex items-center gap-1 text-slate-500 hover:text-blue-600 font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded px-1"
                         >
-                          <LifeBuoy className="w-3.5 h-3.5" />
+                          <LifeBuoy className="w-3.5 h-3.5" aria-hidden="true" />
                           <span>{t.openTicket}</span>
                         </button>
                       </div>
@@ -1042,6 +1124,8 @@ export default function ChatPage() {
             <div className="p-3 pb-4 bg-gradient-to-t from-white via-white/95 to-transparent shrink-0">
               <div className="w-full max-w-3xl mx-auto relative" ref={modelDropdownRef}>
                 <form
+                  role="search"
+                  aria-label="Internal Knowledge Search"
                   onSubmit={(e) => {
                     e.preventDefault();
                     handleSend();
@@ -1052,15 +1136,17 @@ export default function ChatPage() {
                     {/* Plus Action Button */}
                     <button
                       type="button"
-                      className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-100 text-slate-500 transition-colors shrink-0"
+                      aria-label="Attach context or documents"
+                      className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-slate-100 text-slate-500 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                       title="Attach context or documents"
                     >
-                      <Plus className="w-4 h-4" />
+                      <Plus className="w-4 h-4" aria-hidden="true" />
                     </button>
 
                     {/* Input Query */}
                     <input
                       type="text"
+                      aria-label={t.inputPlaceholder}
                       placeholder={t.inputPlaceholder}
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
@@ -1073,11 +1159,15 @@ export default function ChatPage() {
                     <div className="relative">
                       <button
                         type="button"
+                        aria-haspopup="listbox"
+                        aria-expanded={isModelDropdownOpen}
+                        aria-label={`Select AI Model. Current model is ${selectedModel.name}`}
                         onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                        className="rounded-full bg-slate-100/90 hover:bg-slate-200/80 px-3 py-1.5 text-xs font-semibold text-slate-700 flex items-center gap-1.5 transition-colors shrink-0 border border-slate-200/60"
+                        className="rounded-full bg-slate-100/90 hover:bg-slate-200/80 px-3 py-1.5 text-xs font-semibold text-slate-700 flex items-center gap-1.5 transition-colors shrink-0 border border-slate-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                       >
                         <span>{selectedModel.shortLabel}</span>
                         <ChevronDown
+                          aria-hidden="true"
                           className={`w-3.5 h-3.5 text-slate-500 transition-transform ${
                             isModelDropdownOpen ? 'rotate-180' : ''
                           }`}
@@ -1093,17 +1183,19 @@ export default function ChatPage() {
                       <button
                         type="submit"
                         disabled={isStreaming}
-                        className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors shrink-0 shadow-xs"
+                        aria-label="Send query to AI Assistant"
+                        className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center transition-colors shrink-0 shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                       >
-                        <Send className="w-3.5 h-3.5" />
+                        <Send className="w-3.5 h-3.5" aria-hidden="true" />
                       </button>
                     ) : (
                       <button
                         type="button"
-                        className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0"
+                        aria-label="Voice input query"
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                         title="Voice input"
                       >
-                        <Mic className="w-4 h-4" />
+                        <Mic className="w-4 h-4" aria-hidden="true" />
                       </button>
                     )}
                   </div>
@@ -1112,21 +1204,27 @@ export default function ChatPage() {
             </div>
           </div>
         )}
-      </div>
+      </main>
 
       {/* Right-Side Slide-out Citation Inspection Drawer */}
       {selectedCitation && (
-        <div className="fixed inset-y-0 right-0 z-50 w-full sm:w-96 bg-white border-l border-slate-200 shadow-2xl p-6 flex flex-col animate-in slide-in-from-right duration-200">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="citation-drawer-heading"
+          className="fixed inset-y-0 right-0 z-50 w-full sm:w-96 bg-white border-l border-slate-200 shadow-2xl p-6 flex flex-col animate-in slide-in-from-right duration-200"
+        >
           <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-            <div className="flex items-center gap-2 font-semibold text-slate-900 text-sm">
-              <BookOpen className="w-4 h-4 text-blue-600" />
+            <div id="citation-drawer-heading" className="flex items-center gap-2 font-semibold text-slate-900 text-sm">
+              <BookOpen className="w-4 h-4 text-blue-600" aria-hidden="true" />
               <span>{t.drawerTitle}</span>
             </div>
             <button
               onClick={() => setSelectedCitation(null)}
-              className="p-1 rounded-md text-slate-400 hover:text-slate-600"
+              aria-label="Close citation inspector"
+              className="p-1 rounded-md text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
             >
-              <X className="w-5 h-5" />
+              <X className="w-5 h-5" aria-hidden="true" />
             </button>
           </div>
 
@@ -1168,10 +1266,10 @@ export default function ChatPage() {
                 href={selectedCitation.sourceUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-blue-600 font-medium hover:underline pt-2"
+                className="inline-flex items-center gap-1.5 text-xs text-blue-600 font-medium hover:underline pt-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
               >
                 <span>Open original document</span>
-                <ExternalLink className="w-3.5 h-3.5" />
+                <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
               </a>
             )}
           </div>
@@ -1180,62 +1278,70 @@ export default function ChatPage() {
 
       {/* Support Ticket Modal Dialog */}
       {ticketModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ticket-dialog-heading"
+          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full p-6">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-              <div className="flex items-center gap-2 font-semibold text-slate-900">
-                <LifeBuoy className="w-5 h-5 text-blue-600" />
+              <div id="ticket-dialog-heading" className="flex items-center gap-2 font-semibold text-slate-900">
+                <LifeBuoy className="w-5 h-5 text-blue-600" aria-hidden="true" />
                 <span>{t.createTicketTitle}</span>
               </div>
               <button
                 onClick={() => setTicketModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1"
+                aria-label="Close support ticket modal"
+                className="text-slate-400 hover:text-slate-600 p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
 
             {ticketSubmittedMsg ? (
-              <div className="p-4 rounded-lg bg-emerald-50 text-emerald-700 text-sm font-medium">
+              <div role="status" aria-live="polite" className="p-4 rounded-lg bg-emerald-50 text-emerald-700 text-sm font-medium">
                 {ticketSubmittedMsg}
               </div>
             ) : (
               <form onSubmit={handleTicketCreate} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label htmlFor="ticket-subject-input" className="block text-xs font-semibold text-slate-700 mb-1">
                     {t.ticketSubject}
                   </label>
                   <input
+                    id="ticket-subject-input"
                     type="text"
                     required
                     value={ticketTitle}
                     onChange={(e) => setTicketTitle(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm outline-none focus:border-blue-600"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm outline-none focus:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-600"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label htmlFor="ticket-desc-input" className="block text-xs font-semibold text-slate-700 mb-1">
                     {t.ticketDescription}
                   </label>
                   <textarea
+                    id="ticket-desc-input"
                     rows={4}
                     value={ticketDescription}
                     onChange={(e) => setTicketDescription(e.target.value)}
                     placeholder="Provide details about your question or issue..."
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm outline-none focus:border-blue-600 resize-none"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm outline-none focus:border-blue-600 focus-visible:ring-2 focus-visible:ring-blue-600 resize-none"
                   />
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
                     onClick={() => setTicketModalOpen(false)}
-                    className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg min-h-[44px]"
+                    className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
                   >
                     {t.cancel}
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs min-h-[44px]"
+                    className="px-4 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-xs min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                   >
                     {t.submit}
                   </button>
