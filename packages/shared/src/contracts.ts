@@ -113,6 +113,7 @@ export interface AnalyticsSummaryResponse {
   totalDocuments: number;
   totalTokensUsed: number;
   satisfactionRate: number; // percentage
+  faithfulnessScore?: number; // percentage 0-100 (Grounding Index)
   topQueries: { query: string; count: number }[];
   cacheStats?: SemanticCacheStats;
 }
@@ -120,6 +121,13 @@ export interface AnalyticsSummaryResponse {
 // Connector Contracts
 export interface NotionSyncRequest {
   databaseId?: string;
+  pageTitle?: string;
+  content?: string;
+  department?: Department;
+}
+
+export interface ConfluenceSyncRequest {
+  spaceKey?: string;
   pageTitle?: string;
   content?: string;
   department?: Department;
@@ -144,6 +152,11 @@ export interface ConnectorScheduleStatus {
 
 export interface ConnectorStatusResponse {
   notion: {
+    status: 'CONNECTED' | 'DISCONNECTED';
+    lastSync?: string;
+    syncedPagesCount: number;
+  };
+  confluence?: {
     status: 'CONNECTED' | 'DISCONNECTED';
     lastSync?: string;
     syncedPagesCount: number;

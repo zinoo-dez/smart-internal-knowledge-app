@@ -99,4 +99,27 @@ describe('AgentToolsService', () => {
     expect(contact.department).toContain('Security');
     expect(contact.slackHandle).toBe('@alex-secops');
   });
+
+  it('should summarize meeting notes extracting decisions, action items, and open questions', async () => {
+    const sampleRawNotes = `
+Sprint 15 Planning Meeting
+Agreed: Migrate PostgreSQL to Neon serverless branch for preview deployments
+Action: Benchmark pgvector HNSW indexing speed @alex-secops (P1 urgent)
+Action: Update onboarding wiki in Confluence @sarah-hr
+Question: Will the new indexing require downtime on replica?
+`;
+
+    const summary = await service.summarizeMeetingNotes({
+      rawNotes: sampleRawNotes,
+      meetingTitle: 'Sprint 15 Planning',
+    });
+
+    expect(summary.title).toBe('Sprint 15 Planning');
+    expect(summary.decisions).toContainEqual(expect.stringContaining('Migrate PostgreSQL to Neon'));
+    expect(summary.actionItems.length).toBeGreaterThanOrEqual(2);
+    expect(summary.actionItems[0].owner).toBe('alex-secops');
+    expect(summary.actionItems[0].priority).toBe('HIGH');
+    expect(summary.openQuestions).toContainEqual(expect.stringContaining('downtime on replica'));
+    expect(summary.formattedMarkdown).toContain('### 📝 Meeting Summary');
+  });
 });

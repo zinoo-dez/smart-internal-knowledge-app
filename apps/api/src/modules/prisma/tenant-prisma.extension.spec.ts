@@ -101,4 +101,33 @@ describe('TenantPrismaExtension', () => {
 
     expect(args.where).toEqual({ key: 'global-setting' });
   });
+
+  it('should include McpServer in TENANT_SCOPED_MODELS and inject organizationId', async () => {
+    expect(TENANT_SCOPED_MODELS).toContain('McpServer');
+
+    let interceptedQuery: any;
+    const mockClient = {
+      $extends: vi.fn().mockImplementation((config: any) => {
+        interceptedQuery = config.query.$allModels.$allOperations;
+        return { client: true };
+      }),
+    } as any;
+
+    getTenantPrisma(mockClient, mockOrgId);
+
+    const mockNextQuery = vi.fn().mockResolvedValue([]);
+    const args = { where: { status: 'CONNECTED' } };
+
+    await interceptedQuery({
+      model: 'McpServer',
+      operation: 'findMany',
+      args,
+      query: mockNextQuery,
+    });
+
+    expect(args.where).toEqual({
+      status: 'CONNECTED',
+      organizationId: mockOrgId,
+    });
+  });
 });

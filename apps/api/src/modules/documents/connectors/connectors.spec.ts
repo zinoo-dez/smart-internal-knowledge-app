@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotionConnector } from './notion.connector';
+import { ConfluenceConnector } from './confluence.connector';
 import { SlackConnector } from './slack.connector';
 import { ConnectorsController } from './connectors.controller';
 import {
@@ -12,10 +13,11 @@ import {
 import { DocumentsService } from '../documents.service';
 import { SyncSchedulerService } from '../services/sync-scheduler.service';
 
-describe('Connectors (Notion & Slack SaaS Integrations)', () => {
+describe('Connectors (Notion, Confluence & Slack SaaS Integrations)', () => {
   let documentsServiceMock: any;
   let syncSchedulerMock: any;
   let notionConnector: NotionConnector;
+  let confluenceConnector: ConfluenceConnector;
   let slackConnector: SlackConnector;
   let controller: ConnectorsController;
 
@@ -51,9 +53,11 @@ describe('Connectors (Notion & Slack SaaS Integrations)', () => {
     };
 
     notionConnector = new NotionConnector(documentsServiceMock as DocumentsService);
+    confluenceConnector = new ConfluenceConnector(documentsServiceMock as DocumentsService);
     slackConnector = new SlackConnector(documentsServiceMock as DocumentsService);
     controller = new ConnectorsController(
       notionConnector,
+      confluenceConnector,
       slackConnector,
       syncSchedulerMock as SyncSchedulerService,
     );
@@ -83,6 +87,36 @@ describe('Connectors (Notion & Slack SaaS Integrations)', () => {
       );
 
       const status = notionConnector.getStatus();
+      expect(status.status).toBe('CONNECTED');
+      expect(status.syncedPagesCount).toBe(1);
+      expect(status.lastSync).toBeDefined();
+    });
+  });
+
+  describe('ConfluenceConnector', () => {
+    it('should format Confluence space page and forward to DocumentsService with CONFLUENCE source', async () => {
+      const result = await confluenceConnector.syncSpace(tenant, {
+        spaceKey: 'INFRA',
+        pageTitle: 'Kubernetes Cluster Disaster Recovery',
+        department: Department.OPERATIONS,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.documentId).toBe('doc-uuid-connector');
+      expect(result.title).toBe('Kubernetes Cluster Disaster Recovery');
+
+      expect(documentsServiceMock.createDocument).toHaveBeenCalledWith(
+        tenant,
+        expect.objectContaining({
+          title: 'Kubernetes Cluster Disaster Recovery',
+          source: DocumentSource.CONFLUENCE,
+          department: Department.OPERATIONS,
+          sourceUrl: expect.stringContaining('spaces/INFRA/pages/'),
+          content: expect.stringContaining('Production Severity Levels'),
+        }),
+      );
+
+      const status = confluenceConnector.getStatus();
       expect(status.status).toBe('CONNECTED');
       expect(status.syncedPagesCount).toBe(1);
       expect(status.lastSync).toBeDefined();
@@ -150,6 +184,17 @@ describe('Connectors (Notion & Slack SaaS Integrations)', () => {
       const syncRes = await controller.syncNotion(tenant, {
         pageTitle: 'Product Vision 2026',
         department: Department.EXECUTIVE,
+      });
+
+      expect(syncRes.success).toBe(true);
+      expect(documentsServiceMock.createDocument).toHaveBeenCalled();
+    });
+
+    it('should route Confluence sync endpoint properly', async () => {
+      const syncRes = await controller.syncConfluence(tenant, {
+        spaceKey: 'SEC',
+        pageTitle: 'Zero-Trust Architecture Standard',
+        department: Department.ENGINEERING,
       });
 
       expect(syncRes.success).toBe(true);

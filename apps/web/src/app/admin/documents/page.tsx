@@ -15,6 +15,7 @@ import {
   Share2,
   AlertTriangle,
   Clock,
+  BookOpen,
 } from 'lucide-react';
 import { ConnectorStatusResponse, Department, DocumentSource, DocumentSummary } from '@knowledge/shared';
 import { Column, DataTable } from '@/components/ui/data-table';
@@ -26,6 +27,7 @@ import {
   fetchDocuments,
   sendSlackWebhook,
   syncNotionPage,
+  syncConfluenceSpace,
   triggerScheduledSync,
   uploadDocumentFile,
 } from '@/lib/api-client';
@@ -42,6 +44,7 @@ export default function DocumentsPage() {
   // Connector state
   const [connectorStatus, setConnectorStatus] = useState<ConnectorStatusResponse | null>(null);
   const [isSyncingNotion, setIsSyncingNotion] = useState(false);
+  const [isSyncingConfluence, setIsSyncingConfluence] = useState(false);
   const [isSyncingSlack, setIsSyncingSlack] = useState(false);
   const [isTriggeringSync, setIsTriggeringSync] = useState(false);
   const [connectorNotice, setConnectorNotice] = useState<string | null>(null);
@@ -83,10 +86,32 @@ export default function DocumentsPage() {
       setConnectorNotice(`Notion Synced: ${res.title}`);
       await loadData();
       setTimeout(() => setConnectorNotice(null), 4000);
-    } catch (err) {
-      console.error('Failed to sync Notion:', err);
+    } catch (err: any) {
+      console.warn('Failed to sync Notion:', err);
+      setConnectorNotice('Notice: Database container offline or Notion sync returned 500. Ensure Docker/PostgreSQL is running.');
+      setTimeout(() => setConnectorNotice(null), 6000);
     } finally {
       setIsSyncingNotion(false);
+    }
+  };
+
+  const handleSyncConfluence = async () => {
+    setIsSyncingConfluence(true);
+    try {
+      const res = await syncConfluenceSpace({
+        spaceKey: 'ENG-WIKI',
+        pageTitle: 'Confluence Engineering Runbook & Incident Response',
+        department: Department.ENGINEERING,
+      });
+      setConnectorNotice(`Confluence Synced: ${res.title}`);
+      await loadData();
+      setTimeout(() => setConnectorNotice(null), 4000);
+    } catch (err: any) {
+      console.warn('Failed to sync Confluence:', err);
+      setConnectorNotice('Notice: Database container offline or Confluence sync returned 500. Ensure Docker/PostgreSQL is running.');
+      setTimeout(() => setConnectorNotice(null), 6000);
+    } finally {
+      setIsSyncingConfluence(false);
     }
   };
 
@@ -102,8 +127,10 @@ export default function DocumentsPage() {
       setConnectorNotice(res.message);
       await loadData();
       setTimeout(() => setConnectorNotice(null), 4000);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to ingest Slack webhook:', err);
+      setConnectorNotice('Notice: Database container offline or Slack webhook returned 500. Ensure Docker/PostgreSQL is running.');
+      setTimeout(() => setConnectorNotice(null), 6000);
     } finally {
       setIsSyncingSlack(false);
     }
@@ -331,7 +358,7 @@ export default function DocumentsPage() {
       )}
 
       {/* SaaS Connectors Card Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Notion Connector Card */}
         <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex flex-col justify-between">
           <div className="flex items-start justify-between gap-3">
@@ -361,7 +388,41 @@ export default function DocumentsPage() {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 text-white font-medium transition-colors disabled:opacity-50 min-h-[36px]"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncingNotion ? 'animate-spin' : ''}`} />
-              <span>{isSyncingNotion ? 'Syncing...' : 'Sync Notion Now'}</span>
+              <span>{isSyncingNotion ? 'Syncing...' : 'Sync Notion'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Confluence Connector Card */}
+        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm flex flex-col justify-between">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
+                <BookOpen className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-slate-900">Confluence Wiki</h3>
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    Connected
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Ingest runbooks, incident SLAs, and Jira post-mortems.
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+            <span>Synced: {connectorStatus?.confluence?.syncedPagesCount ?? 0} pages</span>
+            <button
+              onClick={handleSyncConfluence}
+              disabled={isSyncingConfluence}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-medium transition-colors disabled:opacity-50 min-h-[36px]"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingConfluence ? 'animate-spin' : ''}`} />
+              <span>{isSyncingConfluence ? 'Syncing...' : 'Sync Confluence'}</span>
             </button>
           </div>
         </div>
@@ -375,27 +436,27 @@ export default function DocumentsPage() {
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="text-sm font-semibold text-slate-900">Slack Knowledge Webhook</h3>
+                  <h3 className="text-sm font-semibold text-slate-900">Slack Webhook</h3>
                   <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                     Active
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Archiving announcements from <code className="text-slate-700 font-mono text-[11px]">#engineering-announcements</code>.
+                  Archiving announcements from <code className="text-slate-700 font-mono text-[11px]">#announcements</code>.
                 </p>
               </div>
             </div>
           </div>
           <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-            <span>Ingested: {connectorStatus?.slack.syncedMessagesCount ?? 0} messages</span>
+            <span>Ingested: {connectorStatus?.slack.syncedMessagesCount ?? 0} msgs</span>
             <button
               onClick={handleSyncSlack}
               disabled={isSyncingSlack}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 text-white font-medium transition-colors disabled:opacity-50 min-h-[36px]"
             >
               <Share2 className="w-3.5 h-3.5" />
-              <span>{isSyncingSlack ? 'Ingesting...' : 'Ingest Test Announcement'}</span>
+              <span>{isSyncingSlack ? 'Ingesting...' : 'Ingest Test Post'}</span>
             </button>
           </div>
         </div>
@@ -536,6 +597,7 @@ export default function DocumentsPage() {
                     >
                       <option value={DocumentSource.FILE_UPLOAD}>Direct Text Paste</option>
                       <option value={DocumentSource.NOTION}>Notion Workspace Page</option>
+                      <option value={DocumentSource.CONFLUENCE}>Confluence Wiki Page</option>
                       <option value={DocumentSource.SLACK}>Slack Channel Archive</option>
                       <option value={DocumentSource.GOOGLE_DRIVE}>Google Drive Document</option>
                     </select>

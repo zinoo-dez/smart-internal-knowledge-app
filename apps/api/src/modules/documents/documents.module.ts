@@ -10,6 +10,7 @@ import { SearchModule } from '../search/search.module';
 import { ConnectorsController } from './connectors/connectors.controller';
 import { SlackEventsController } from './connectors/slack-events.controller';
 import { NotionConnector } from './connectors/notion.connector';
+import { ConfluenceConnector } from './connectors/confluence.connector';
 import { SlackConnector } from './connectors/slack.connector';
 import { SlackBotService } from './connectors/slack-bot.service';
 import { SyncSchedulerService } from './services/sync-scheduler.service';
@@ -28,6 +29,7 @@ import { DataSanitizerService } from './services/data-sanitizer.service';
     EmbeddingService,
     IngestionProcessor,
     NotionConnector,
+    ConfluenceConnector,
     SlackConnector,
     SlackBotService,
     SyncSchedulerService,
@@ -38,6 +40,7 @@ import { DataSanitizerService } from './services/data-sanitizer.service';
     EmbeddingService,
     IngestionProcessor,
     NotionConnector,
+    ConfluenceConnector,
     SlackConnector,
     SlackBotService,
     SyncSchedulerService,

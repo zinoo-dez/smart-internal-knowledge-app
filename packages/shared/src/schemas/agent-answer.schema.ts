@@ -12,6 +12,8 @@ export const AgentAnswerSchema = z.object({
   answer: z.string().describe('The grounded response text in user language with inline citations'),
   citations: z.array(AgentCitationSchema).default([]),
   confidenceScore: z.number().min(0).max(1).default(1),
+  faithfulnessScore: z.number().min(0).max(1).default(1),
+  followUpQuestions: z.array(z.string()).default([]),
   requiresHumanEscalation: z.boolean().default(false),
   escalationDepartment: z.enum(['HR', 'IT', 'SECURITY', 'FINANCE', 'GENERAL', 'NONE']).default('NONE'),
 });

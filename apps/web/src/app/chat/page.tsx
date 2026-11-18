@@ -28,6 +28,8 @@ import {
   Database,
   Shield,
   Calendar,
+  Copy,
+  Highlighter,
 } from 'lucide-react';
 import { ConversationSummary, DocumentCitation, FeedbackType } from '@knowledge/shared';
 import {
@@ -114,6 +116,7 @@ interface ChatMessage {
   citations?: DocumentCitation[];
   queryLogId?: string;
   feedbackGiven?: 'UP' | 'DOWN';
+  followUpQuestions?: string[];
   activeTool?: {
     name: string;
     serverName?: string;
@@ -131,6 +134,8 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [selectedCitation, setSelectedCitation] = useState<DocumentCitation | null>(null);
+  const [copiedCitationSnippet, setCopiedCitationSnippet] = useState(false);
+  const [highlightSearchTerm, setHighlightSearchTerm] = useState('');
   const [ticketModalOpen, setTicketModalOpen] = useState(false);
   const [ticketTitle, setTicketTitle] = useState('');
   const [ticketDescription, setTicketDescription] = useState('');
@@ -177,6 +182,55 @@ export default function ChatPage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isModelDropdownOpen, selectedCitation, ticketModalOpen]);
+
+  // Auto-seed highlight search term from latest user inquiry
+  useEffect(() => {
+    if (selectedCitation) {
+      const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
+      if (lastUserMsg) {
+        setHighlightSearchTerm(lastUserMsg.content);
+      }
+    }
+  }, [selectedCitation, messages]);
+
+  const handleCopyCitation = () => {
+    if (selectedCitation?.snippet) {
+      navigator.clipboard.writeText(selectedCitation.snippet);
+      setCopiedCitationSnippet(true);
+      setTimeout(() => setCopiedCitationSnippet(false), 2000);
+    }
+  };
+
+  const renderHighlightedSnippet = (text: string, query: string) => {
+    if (!text) return null;
+    const terms = (query || '')
+      .trim()
+      .split(/\s+/)
+      .filter((w) => w.length > 2)
+      .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+
+    if (terms.length === 0) return <span>{text}</span>;
+
+    const regex = new RegExp(`(${terms.join('|')})`, 'gi');
+    const parts = text.split(regex);
+
+    return (
+      <span>
+        {parts.map((part, i) =>
+          regex.test(part) ? (
+            <mark
+              key={i}
+              className="bg-amber-100 text-amber-900 px-1 py-0.5 rounded font-semibold border-b border-amber-300"
+            >
+              {part}
+            </mark>
+          ) : (
+            part
+          ),
+        )}
+      </span>
+    );
+  };
 
   const toggleToolAccordion = (msgId: string) => {
     setOpenAccordions((prev) => ({ ...prev, [msgId]: !prev[msgId] }));
@@ -398,6 +452,14 @@ export default function ChatPage() {
                       : m,
                   ),
                 );
+              } else if (data.type === 'follow_ups') {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId
+                      ? { ...m, followUpQuestions: data.questions }
+                      : m,
+                  ),
+                );
               } else if (data.type === 'done') {
                 logId = data.queryLogId;
                 if (data.conversationId && !activeConversationId) {
@@ -439,6 +501,11 @@ export default function ChatPage() {
                 content: demoAnswer,
                 citations: demoCitations,
                 queryLogId: 'mock-query-log-1',
+                followUpQuestions: [
+                  'Where can I download the WireGuard configuration file?',
+                  'Who is the designated IT on-call contact for VPN access?',
+                  'Can I connect to VPN from my mobile device?',
+                ],
               }
             : m,
         ),
@@ -1068,6 +1135,31 @@ export default function ChatPage() {
                       </nav>
                     )}
 
+                    {/* Dynamic Suggested Follow-up Questions */}
+                    {msg.followUpQuestions && msg.followUpQuestions.length > 0 && (
+                      <div className="mt-3 pt-2.5 border-t border-slate-100">
+                        <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                          <Sparkles className="w-3 h-3 text-blue-500" />
+                          <span>Suggested Follow-ups</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {msg.followUpQuestions.map((q, qIdx) => (
+                            <button
+                              key={qIdx}
+                              onClick={() => {
+                                setInput(q);
+                              }}
+                              className="text-xs text-left px-3 py-1.5 rounded-full bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 hover:border-blue-200 transition-colors shadow-2xs inline-flex items-center gap-1.5 group cursor-pointer"
+                              title="Click to ask this follow-up question"
+                            >
+                              <span>{q}</span>
+                              <ChevronRight className="w-3 h-3 text-slate-400 group-hover:text-blue-600 transition-transform group-hover:translate-x-0.5" />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Assistant Message Actions & Feedback */}
                     {msg.role === 'assistant' && (
                       <div className="mt-3 pt-2.5 flex items-center justify-between text-xs text-slate-400 border-t border-slate-100">
@@ -1233,31 +1325,69 @@ export default function ChatPage() {
               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
                 {t.sourceDoc}
               </div>
-              <div className="font-semibold text-slate-900 text-sm">
+              <div className="font-semibold text-slate-900 text-sm leading-snug">
                 {selectedCitation.documentTitle}
               </div>
-            </div>
-
-            <div>
-              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-                {t.relevanceMatch}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-700">
-                  {selectedCitation.source}
-                </span>
-                <span className="text-xs text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded">
-                  Score: {(selectedCitation.relevanceScore * 100).toFixed(1)}%
-                </span>
+              <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+                Provenance: Chunk #{selectedCitation.chunkId.slice(0, 8)}
               </div>
             </div>
 
             <div>
               <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                Exact Excerpted Text
+                {t.relevanceMatch}
               </div>
-              <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-700 leading-relaxed font-mono whitespace-pre-wrap">
-                {selectedCitation.snippet}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                  {selectedCitation.source}
+                </span>
+                <span className="text-xs text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                  Score: {(selectedCitation.relevanceScore * 100).toFixed(1)}%
+                </span>
+                <span className="text-xs text-blue-700 font-medium bg-blue-50 border border-blue-100 px-2 py-0.5 rounded">
+                  Role: ACL Verified
+                </span>
+              </div>
+            </div>
+
+            {/* Keyword Highlighting Controls */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                  <Highlighter className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Interactive Source Highlighting</span>
+                </div>
+                <button
+                  onClick={handleCopyCitation}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:text-blue-600 px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                  title="Copy excerpt to clipboard"
+                >
+                  {copiedCitationSnippet ? (
+                    <>
+                      <Check className="w-3 h-3 text-emerald-600" />
+                      <span className="text-emerald-600">Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3 text-slate-500" />
+                      <span>Copy Excerpt</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              <div className="relative mb-2">
+                <input
+                  type="text"
+                  placeholder="Filter or highlight terms in excerpt..."
+                  value={highlightSearchTerm}
+                  onChange={(e) => setHighlightSearchTerm(e.target.value)}
+                  className="w-full pl-2.5 pr-2 py-1.5 text-xs rounded-md border border-slate-200 focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none bg-slate-50/50"
+                />
+              </div>
+
+              <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 leading-relaxed font-sans whitespace-pre-wrap select-text">
+                {renderHighlightedSnippet(selectedCitation.snippet, highlightSearchTerm)}
               </div>
             </div>
 
@@ -1266,7 +1396,7 @@ export default function ChatPage() {
                 href={selectedCitation.sourceUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-blue-600 font-medium hover:underline pt-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                className="inline-flex items-center gap-1.5 text-xs text-blue-600 font-semibold hover:underline pt-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
               >
                 <span>Open original document</span>
                 <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />

@@ -26,6 +26,7 @@ enum DocumentSource {
   NOTION
   SLACK
   GOOGLE_DRIVE
+  CONFLUENCE
 }
 
 enum IngestionStatus {
@@ -166,6 +167,7 @@ model QueryLog {
   completionTokens Int          @default(0)
   totalTokens      Int          @default(0)
   latencyMs        Int          @default(0)
+  faithfulnessScore Float?      @default(1.0)
   langsmithRunId   String?
   citations        Json?
   isUnresolved     Boolean      @default(false)

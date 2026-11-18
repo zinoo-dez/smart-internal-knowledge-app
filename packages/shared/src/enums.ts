@@ -16,6 +16,7 @@ export enum DocumentSource {
   NOTION = 'NOTION',
   SLACK = 'SLACK',
   GOOGLE_DRIVE = 'GOOGLE_DRIVE',
+  CONFLUENCE = 'CONFLUENCE',
 }
 
 export enum IngestionStatus {

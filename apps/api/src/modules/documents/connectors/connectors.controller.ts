@@ -6,6 +6,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ConfluenceSyncRequest,
   ConnectorStatusResponse,
   NotionSyncRequest,
   SlackWebhookPayload,
@@ -17,6 +18,7 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { CurrentTenant } from '../../auth/decorators/tenant-context.decorator';
 import { NotionConnector, NotionSyncResult } from './notion.connector';
+import { ConfluenceConnector, ConfluenceSyncResult } from './confluence.connector';
 import { SlackConnector, SlackWebhookResult } from './slack.connector';
 import { SyncSchedulerService } from '../services/sync-scheduler.service';
 
@@ -25,6 +27,7 @@ import { SyncSchedulerService } from '../services/sync-scheduler.service';
 export class ConnectorsController {
   constructor(
     private readonly notionConnector: NotionConnector,
+    private readonly confluenceConnector: ConfluenceConnector,
     private readonly slackConnector: SlackConnector,
     private readonly syncScheduler: SyncSchedulerService,
   ) {}
@@ -34,6 +37,7 @@ export class ConnectorsController {
     const schedule = await this.syncScheduler.getScheduleStatus(tenant);
     return {
       notion: this.notionConnector.getStatus(),
+      confluence: this.confluenceConnector.getStatus(),
       slack: this.slackConnector.getStatus(),
       schedule,
     };
@@ -54,6 +58,15 @@ export class ConnectorsController {
     @Body() dto: NotionSyncRequest,
   ): Promise<NotionSyncResult> {
     return this.notionConnector.syncPage(tenant, dto);
+  }
+
+  @Post('confluence/sync')
+  @Roles(UserRole.ADMIN)
+  async syncConfluence(
+    @CurrentTenant() tenant: TenantContext,
+    @Body() dto: ConfluenceSyncRequest,
+  ): Promise<ConfluenceSyncResult> {
+    return this.confluenceConnector.syncSpace(tenant, dto);
   }
 
   @Post('slack/webhook')

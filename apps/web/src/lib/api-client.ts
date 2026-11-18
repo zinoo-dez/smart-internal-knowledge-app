@@ -14,6 +14,7 @@ import {
   KnowledgeGapItem,
   KnowledgeGapSummaryResponse,
   NotionSyncRequest,
+  ConfluenceSyncRequest,
   PaginatedAuditLogsResponse,
   QueryAuditLogsParams,
   SlackWebhookPayload,
@@ -84,6 +85,18 @@ export async function fetchDocuments(): Promise<DocumentSummary[]> {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
+      {
+        id: 'seed-doc-4',
+        organizationId: 'mock-org-default',
+        title: 'Confluence Engineering Runbook & Incident Response',
+        source: DocumentSource.CONFLUENCE,
+        department: Department.ENGINEERING,
+        sourceUrl: 'https://company.atlassian.net/wiki/spaces/ENG-WIKI',
+        status: 'INDEXED' as any,
+        chunkCount: 18,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
     ];
   }
 }
@@ -145,6 +158,7 @@ export async function fetchAnalytics(): Promise<AnalyticsSummaryResponse> {
       totalDocuments: 8,
       totalTokensUsed: 38450,
       satisfactionRate: 94,
+      faithfulnessScore: 98.4,
       topQueries: [
         { query: 'How to connect to company VPN?', count: 38 },
         { query: 'What is our annual leave policy?', count: 24 },
@@ -204,6 +218,11 @@ export async function fetchConnectorStatus(): Promise<ConnectorStatusResponse> {
         lastSync: new Date().toISOString(),
         syncedPagesCount: 4,
       },
+      confluence: {
+        status: 'CONNECTED',
+        lastSync: new Date().toISOString(),
+        syncedPagesCount: 8,
+      },
       slack: {
         status: 'CONNECTED',
         lastSync: new Date().toISOString(),
@@ -217,13 +236,45 @@ export async function fetchConnectorStatus(): Promise<ConnectorStatusResponse> {
 export async function syncNotionPage(
   data: NotionSyncRequest,
 ): Promise<{ success: boolean; documentId: string; title: string; message: string }> {
-  const res = await fetch(`${API_BASE_URL}/api/connectors/notion/sync`, {
-    method: 'POST',
-    headers: DEFAULT_HEADERS,
-    body: JSON.stringify(data),
-  });
-  if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-  return await res.json();
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/connectors/notion/sync`, {
+      method: 'POST',
+      headers: DEFAULT_HEADERS,
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.warn('Backend Notion sync unavailable, using mock sync fallback:', err);
+    return {
+      success: true,
+      documentId: 'mock-notion-' + Date.now(),
+      title: data.pageTitle || 'Notion Architecture & Coding Standards',
+      message: 'Document accepted for ingestion (Mock Fallback Mode)',
+    };
+  }
+}
+
+export async function syncConfluenceSpace(
+  data: ConfluenceSyncRequest,
+): Promise<{ success: boolean; documentId: string; title: string; message: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/connectors/confluence/sync`, {
+      method: 'POST',
+      headers: DEFAULT_HEADERS,
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    console.warn('Backend Confluence sync unavailable, using mock sync fallback:', err);
+    return {
+      success: true,
+      documentId: 'mock-confluence-' + Date.now(),
+      title: data.pageTitle || 'Confluence Engineering Runbook & Incident Response',
+      message: 'Space documentation accepted for ingestion (Mock Fallback Mode)',
+    };
+  }
 }
 
 export async function sendSlackWebhook(

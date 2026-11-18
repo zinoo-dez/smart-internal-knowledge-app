@@ -13,6 +13,7 @@ export const TENANT_SCOPED_MODELS = [
   'Conversation',
   'ChatMessageRecord',
   'User',
+  'McpServer',
 ];
 
 /**
