@@ -97,13 +97,21 @@ export class RerankService {
       const baseRrfScore = candidate.relevanceScore; // typically in [0.01, 0.04]
       const normalizedRrf = Math.min(baseRrfScore * 25.0, 1.0);
 
+      // Check for any meaningful lexical or title match
+      const hasAnyLexicalMatch = tokenCoverageScore > 0 || hasExactPhrase || titleScore > 0;
+
       // Joint Cross-Encoder Score
-      const crossScore =
+      let crossScore =
         0.30 * normalizedRrf +
         0.30 * tokenCoverageScore +
         0.20 * exactPhraseScore +
         0.10 * titleScore +
         0.10 * structuralScore;
+
+      // If there is zero lexical or title overlap and weak RRF score, zero out to prevent hallucinated citations
+      if (!hasAnyLexicalMatch && baseRrfScore < 0.03) {
+        crossScore = 0.0;
+      }
 
       return {
         ...candidate,
@@ -111,8 +119,11 @@ export class RerankService {
       };
     });
 
-    // Sort by cross-encoder score descending and take topK
-    return scoredCandidates.sort((a, b) => b.relevanceScore - a.relevanceScore).slice(0, topK);
+    // Sort by cross-encoder score descending and take topK, filtering out zero-relevance noise
+    return scoredCandidates
+      .filter((c) => c.relevanceScore > 0.01)
+      .sort((a, b) => b.relevanceScore - a.relevanceScore)
+      .slice(0, topK);
   }
 
   /**

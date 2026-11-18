@@ -159,7 +159,10 @@ Would you like me to open an internal support ticket with HR & Workplace Operati
     }
 
     // Default: Gemini
-    const activeModel = modelName || 'gemini-2.0-flash';
+    let activeModel = modelName || 'gemini-3.5-flash-lite';
+    if (activeModel === 'gemini-2.0-flash' || activeModel === 'gemini-1.5-flash') {
+      activeModel = 'gemini-3.5-flash-lite';
+    }
     const apiKey = process.env.GEMINI_API_KEY;
     if (apiKey && !apiKey.startsWith('AIzaSy...')) {
       return {
@@ -714,14 +717,53 @@ Standalone Search Query:`;
   }
 
   private generateSynthesizedAnswer(query: string, citations: DocumentCitation[]): string {
+    if (!citations || citations.length === 0) {
+      return this.generateSafeRefusal(query);
+    }
+
     const primary = citations[0];
     const isMy = this.isMyanmarQuery(query);
-    if (isMy) {
-      return `**${primary.documentTitle}** [1] မှ ဖော်ပြချက်အရ: ${primary.snippet.slice(0, 250)}...\n\n` +
-        `အသေးစိတ်အချက်အလက်များအတွက် သက်ဆိုင်ရာ ကုမ္ပဏီမှတ်တမ်းများကို ကြည့်ရှုနိုင်ပါသည်။`;
+
+    // Verify whether the primary citation has any genuine lexical/topical relation to the query
+    const queryTokens = query
+      .toLowerCase()
+      .split(/[\s,၊။?]+/)
+      .filter((w) => w.length > 2);
+    const hasOverlap = queryTokens.some(
+      (token) =>
+        primary.snippet.toLowerCase().includes(token) ||
+        primary.documentTitle.toLowerCase().includes(token),
+    );
+
+    // If zero keyword/token overlap and low relevance score, execute safe refusal to prevent hallucinations
+    if (!hasOverlap && (primary.relevanceScore || 0) < 0.25) {
+      return this.generateSafeRefusal(query);
     }
-    return `Based on **${primary.documentTitle}** [1], ${primary.snippet.slice(0, 250)}...\n\n` +
-      `For additional details, please refer to the referenced company documentation.`;
+
+    if (isMy) {
+      return (
+        `**${primary.documentTitle}** [1] မှ ဖော်ပြချက်အရ: ${primary.snippet.slice(0, 250)}...\n\n` +
+        `အသေးစိတ်အချက်အလက်များအတွက် သက်ဆိုင်ရာ ကုမ္ပဏီမှတ်တမ်းများကို ကြည့်ရှုနိုင်ပါသည်။`
+      );
+    }
+    return (
+      `Based on **${primary.documentTitle}** [1], ${primary.snippet.slice(0, 250)}...\n\n` +
+      `For additional details, please refer to the referenced company documentation.`
+    );
+  }
+
+  private generateSafeRefusal(query: string): string {
+    const isMy = this.isMyanmarQuery(query);
+    if (isMy) {
+      return (
+        `ကုမ္ပဏီမှတ်တမ်းများတွင် "${query}" နှင့်ပတ်သက်သော အချက်အလက်များ မတွေ့ရှိပါ။\n\n` +
+        `သက်ဆိုင်ရာဌာနသို့ အကူအညီတောင်းခံလွှာ (Support Ticket) ဖွင့်ပေးရမလားခင်ဗျာ။`
+      );
+    }
+    return (
+      `I could not find information about "${query}" in company documentation.\n\n` +
+      `Would you like me to open an internal support ticket with the relevant department to clarify this policy?`
+    );
   }
 
   private async streamSyntheticResponse(text: string, res: Response): Promise<void> {

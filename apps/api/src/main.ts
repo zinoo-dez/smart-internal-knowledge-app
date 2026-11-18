@@ -1,6 +1,13 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import helmet from 'helmet';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+
+// Force load root .env with override: true so valid API keys always take precedence over stale shell env vars
+dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
+dotenv.config({ path: path.resolve(__dirname, '../../../.env'), override: true });
+
 import { AppModule } from './app.module';
 import { GlobalExceptionsFilter } from './common/filters/http-exception.filter';
 

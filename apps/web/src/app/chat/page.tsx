@@ -41,10 +41,10 @@ interface ModelOption {
 
 const AVAILABLE_MODELS: ModelOption[] = [
   {
-    id: 'gemini-2.0-flash',
-    name: 'Gemini 2.0 Flash',
+    id: 'gemini-3.5-flash',
+    name: 'Gemini 3.5 Flash',
     provider: 'GEMINI',
-    modelName: 'gemini-2.0-flash',
+    modelName: 'gemini-3.5-flash-lite',
     badge: 'Default (Fast)',
   },
   {

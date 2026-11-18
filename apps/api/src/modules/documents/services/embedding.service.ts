@@ -11,9 +11,10 @@ export class EmbeddingService {
     const apiKey = process.env.GEMINI_API_KEY;
     if (apiKey && !apiKey.startsWith('AIzaSy...')) {
       this.geminiEmbedder = new GoogleGenerativeAIEmbeddings({
-        model: 'text-embedding-004',
+        model: 'gemini-embedding-001',
         apiKey,
-      });
+        outputDimensionality: 768,
+      } as any);
     }
   }
 
