@@ -228,8 +228,10 @@ export default function HomePage() {
             <LanguageSwitcher compact />
             <button
               onClick={() => setMobileNavOpen(!mobileNavOpen)}
-              className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 min-h-[44px] min-w-[44px] flex items-center justify-center"
+              className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
               aria-label="Toggle navigation"
+              aria-expanded={mobileNavOpen}
+              aria-controls="mobile-landing-nav"
             >
               {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -238,7 +240,7 @@ export default function HomePage() {
 
         {/* Mobile Dropdown Menu */}
         {mobileNavOpen && (
-          <div className="md:hidden border-b border-slate-200 bg-white px-4 pt-3 pb-6 space-y-3">
+          <div id="mobile-landing-nav" className="md:hidden border-b border-slate-200 bg-white px-4 pt-3 pb-6 space-y-3">
             <a
               href="#features"
               onClick={() => setMobileNavOpen(false)}
@@ -287,8 +289,10 @@ export default function HomePage() {
         )}
       </header>
 
-      {/* 2. Hero Section with Live Assistant Mockup */}
-      <section className="relative pt-12 pb-20 md:pt-20 md:pb-28 overflow-hidden bg-gradient-to-b from-slate-50 via-white to-white">
+      {/* Main Content Landmark */}
+      <main id="main-content" tabIndex={-1} className="flex-1 outline-none">
+        {/* 2. Hero Section with Live Assistant Mockup */}
+        <section className="relative pt-12 pb-20 md:pt-20 md:pb-28 overflow-hidden bg-gradient-to-b from-slate-50 via-white to-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto">
             {/* Pill Badge */}
@@ -334,7 +338,7 @@ export default function HomePage() {
             {/* Top Bar */}
             <div className="bg-slate-100/80 px-4 py-3 border-b border-slate-200 flex items-center justify-between text-xs">
               <div className="flex items-center gap-2">
-                <div className="flex gap-1.5">
+                <div className="flex gap-1.5" aria-hidden="true">
                   <div className="w-3 h-3 rounded-full bg-slate-300" />
                   <div className="w-3 h-3 rounded-full bg-slate-300" />
                   <div className="w-3 h-3 rounded-full bg-slate-300" />
@@ -345,7 +349,7 @@ export default function HomePage() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-[11px]">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true" />
                   {t.landingMockupConfidence}
                 </span>
               </div>
@@ -358,14 +362,14 @@ export default function HomePage() {
                 <div className="bg-blue-600 text-white text-sm px-4 py-2.5 rounded-2xl rounded-tr-none max-w-lg shadow-sm font-medium">
                   {t.landingMockupQuery}
                 </div>
-                <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold shrink-0" aria-hidden="true">
                   U
                 </div>
               </div>
 
               {/* Assistant Answer */}
               <div className="flex justify-start items-start gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-white border border-slate-200 text-blue-600 flex items-center justify-center shrink-0 shadow-sm">
+                <div className="w-7 h-7 rounded-lg bg-white border border-slate-200 text-blue-600 flex items-center justify-center shrink-0 shadow-sm" aria-hidden="true">
                   <Bot className="w-4 h-4" />
                 </div>
                 <div className="bg-white border border-slate-200 text-slate-800 text-sm p-4 rounded-2xl rounded-tl-none max-w-xl shadow-sm space-y-3">
@@ -517,9 +521,9 @@ export default function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-16">
             <div className="p-5 rounded-xl border border-slate-200 bg-slate-50 relative">
               <div className="text-xs font-mono font-bold text-blue-600 mb-1">01 / SECURITY GATEWAY</div>
-              <h4 className="text-sm font-bold text-slate-900 mb-2">
+              <h3 className="text-sm font-bold text-slate-900 mb-2">
                 {isMyanmar ? 'အဖွဲ့အစည်း စိစစ်ခြင်း' : 'Tenant Auth & PII Masking'}
-              </h4>
+              </h3>
               <p className="text-xs text-slate-500 leading-relaxed">
                 {isMyanmar
                   ? 'Clerk RBAC guard နှင့် AWS token များ၊ လျှို့ဝှက်ကုဒ်များကို အလိုအလျောက် ဖုံးကွယ်ခြင်း။'
@@ -529,9 +533,9 @@ export default function HomePage() {
 
             <div className="p-5 rounded-xl border border-slate-200 bg-slate-50 relative">
               <div className="text-xs font-mono font-bold text-blue-600 mb-1">02 / 0-LATENCY CACHE</div>
-              <h4 className="text-sm font-bold text-slate-900 mb-2">
+              <h3 className="text-sm font-bold text-slate-900 mb-2">
                 {isMyanmar ? 'Redis Vector Cache' : 'Redis Semantic Cache'}
-              </h4>
+              </h3>
               <p className="text-xs text-slate-500 leading-relaxed">
                 {isMyanmar
                   ? 'တူညီသော မေးခွန်းများအတွက် Cosine similarity > 0.96 ဖြင့် LLM မခေါ်ဘဲ ချက်ချင်း ဖြေကြားခြင်း။'
@@ -541,9 +545,9 @@ export default function HomePage() {
 
             <div className="p-5 rounded-xl border border-slate-200 bg-slate-50 relative">
               <div className="text-xs font-mono font-bold text-blue-600 mb-1">03 / HYBRID RETRIEVAL</div>
-              <h4 className="text-sm font-bold text-slate-900 mb-2">
+              <h3 className="text-sm font-bold text-slate-900 mb-2">
                 {isMyanmar ? 'pgvector + BM25 RRF' : 'PostgreSQL RRF Search'}
-              </h4>
+              </h3>
               <p className="text-xs text-slate-500 leading-relaxed">
                 {isMyanmar
                   ? 'Dense vector နှင့် စာလုံးအကိုက်ရှာဖွေမှုကို ပေါင်းစပ်ပြီး အကိုက်ညီဆုံး အပိုင်းများကို စီစစ်ခြင်း။'
@@ -553,9 +557,9 @@ export default function HomePage() {
 
             <div className="p-5 rounded-xl border border-slate-200 bg-slate-50 relative">
               <div className="text-xs font-mono font-bold text-blue-600 mb-1">04 / VERIFIED ANSWER</div>
-              <h4 className="text-sm font-bold text-slate-900 mb-2">
+              <h3 className="text-sm font-bold text-slate-900 mb-2">
                 {isMyanmar ? 'အကိုးအကား အပြည့်အစုံ' : 'Grounded Citation Output'}
-              </h4>
+              </h3>
               <p className="text-xs text-slate-500 leading-relaxed">
                 {isMyanmar
                   ? 'စစ်ဆေးနိုင်သော Document Citation [1], [2] များနှင့်တကွ Circuit Breaker အကာအကွယ်ဖြင့် ဖြေဆိုခြင်း။'
@@ -727,6 +731,7 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+      </main>
 
       {/* 9. Enterprise Footer */}
       <footer className="border-t border-slate-200 bg-white py-12 text-slate-500 text-xs">

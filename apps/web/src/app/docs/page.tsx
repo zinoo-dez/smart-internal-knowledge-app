@@ -82,21 +82,29 @@ export default function DocsPage() {
       </div>
 
       {/* Tabs Navigation */}
-      <div className="border-b border-slate-200 bg-white rounded-t-xl px-4 flex items-center gap-2 overflow-x-auto shadow-sm">
+      <div
+        role="tablist"
+        aria-label="Documentation sections"
+        className="border-b border-slate-200 bg-white rounded-t-xl px-4 flex items-center gap-2 overflow-x-auto shadow-sm"
+      >
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
+              role="tab"
+              id={`tab-${tab.id}`}
+              aria-selected={isActive}
+              aria-controls={`tabpanel-${tab.id}`}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 py-3.5 px-4 text-xs font-semibold transition-all border-b-2 whitespace-nowrap min-h-[44px] ${
+              className={`flex items-center gap-2 py-3.5 px-4 text-xs font-semibold transition-all border-b-2 whitespace-nowrap min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                 isActive
                   ? 'border-blue-600 text-blue-600 bg-blue-50/50'
                   : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300'
               }`}
             >
-              <Icon className="w-4 h-4 shrink-0" />
+              <Icon className="w-4 h-4 shrink-0" aria-hidden="true" />
               <span>{tab.label}</span>
             </button>
           );
@@ -105,7 +113,13 @@ export default function DocsPage() {
 
       {/* TAB 1: ZERO-KNOWLEDGE USER GUIDE */}
       {activeTab === 'guide' && (
-        <div className="space-y-6">
+        <div
+          role="tabpanel"
+          id="tabpanel-guide"
+          aria-labelledby="tab-guide"
+          tabIndex={0}
+          className="space-y-6 outline-none"
+        >
           {/* Hero Banner */}
           <div className="bg-white border border-slate-200/80 rounded-xl p-6 shadow-sm">
             <h2 className="text-lg font-bold text-slate-900 mb-1">{currentDocs.guide.heroTitle}</h2>
@@ -234,17 +248,25 @@ export default function DocsPage() {
                   >
                     <button
                       onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
-                      className="w-full p-4 text-left flex items-center justify-between gap-3 bg-white hover:bg-slate-50 transition-colors min-h-[44px]"
+                      aria-expanded={isOpen}
+                      aria-controls={`faq-answer-${idx}`}
+                      id={`faq-question-${idx}`}
+                      className="w-full p-4 text-left flex items-center justify-between gap-3 bg-white hover:bg-slate-50 transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                     >
                       <span className="font-semibold text-xs text-slate-800">{faq.question}</span>
                       {isOpen ? (
-                        <ChevronUp className="w-4 h-4 text-slate-400 shrink-0" />
+                        <ChevronUp className="w-4 h-4 text-slate-400 shrink-0" aria-hidden="true" />
                       ) : (
-                        <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                        <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" aria-hidden="true" />
                       )}
                     </button>
                     {isOpen && (
-                      <div className="p-4 pt-0 text-xs text-slate-600 leading-relaxed border-t border-slate-100 bg-slate-50/40">
+                      <div
+                        id={`faq-answer-${idx}`}
+                        role="region"
+                        aria-labelledby={`faq-question-${idx}`}
+                        className="p-4 pt-0 text-xs text-slate-600 leading-relaxed border-t border-slate-100 bg-slate-50/40"
+                      >
                         {faq.answer}
                       </div>
                     )}
@@ -258,7 +280,13 @@ export default function DocsPage() {
 
       {/* TAB 2: TERMS & CONDITIONS */}
       {activeTab === 'terms' && (
-        <div className="space-y-6">
+        <div
+          role="tabpanel"
+          id="tabpanel-terms"
+          aria-labelledby="tab-terms"
+          tabIndex={0}
+          className="space-y-6 outline-none"
+        >
           {/* Legal Disclaimer Alert Banner */}
           <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-3 text-xs leading-relaxed">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
@@ -300,7 +328,13 @@ export default function DocsPage() {
 
       {/* TAB 3: PRIVACY POLICY */}
       {activeTab === 'privacy' && (
-        <div className="space-y-6">
+        <div
+          role="tabpanel"
+          id="tabpanel-privacy"
+          aria-labelledby="tab-privacy"
+          tabIndex={0}
+          className="space-y-6 outline-none"
+        >
           {/* Legal Disclaimer Alert Banner */}
           <div className="p-4 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 flex items-start gap-3 text-xs leading-relaxed">
             <ShieldCheck className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
@@ -346,7 +380,13 @@ export default function DocsPage() {
 
       {/* TAB 4: COOKIES & LOCAL STORAGE */}
       {activeTab === 'cookies' && (
-        <div className="space-y-6">
+        <div
+          role="tabpanel"
+          id="tabpanel-cookies"
+          aria-labelledby="tab-cookies"
+          tabIndex={0}
+          className="space-y-6 outline-none"
+        >
           <div className="bg-white border border-slate-200/80 rounded-xl p-6 shadow-sm space-y-4">
             <div>
               <h2 className="text-lg font-bold text-slate-900">{currentDocs.cookies.title}</h2>
@@ -355,7 +395,12 @@ export default function DocsPage() {
               </p>
             </div>
 
-            <div className="overflow-x-auto border border-slate-200 rounded-lg">
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label="Storage keys table"
+              className="overflow-x-auto border border-slate-200 rounded-lg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+            >
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold">
                   <tr>

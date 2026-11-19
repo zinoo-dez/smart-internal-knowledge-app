@@ -104,8 +104,10 @@ export function AppShell({ children }: AppShellProps) {
           <LanguageSwitcher compact />
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 min-h-[44px] min-w-[44px] flex items-center justify-center"
+            className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
             aria-label="Toggle Navigation"
+            aria-expanded={mobileMenuOpen}
+            aria-controls="desktop-sidebar-nav"
           >
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
@@ -114,6 +116,8 @@ export function AppShell({ children }: AppShellProps) {
 
       {/* Desktop Navigation Sidebar */}
       <aside
+        id="desktop-sidebar-nav"
+        aria-label="Main Navigation"
         className={cn(
           'fixed inset-y-0 left-0 z-30 w-64 bg-white border-r border-slate-200 flex flex-col transition-transform duration-200 ease-in-out md:static md:translate-x-0',
           mobileMenuOpen ? 'translate-x-0' : '-translate-x-full',
@@ -142,8 +146,9 @@ export function AppShell({ children }: AppShellProps) {
                 key={item.href}
                 href={item.href}
                 onClick={() => setMobileMenuOpen(false)}
+                aria-current={item.active ? 'page' : undefined}
                 className={cn(
-                  'flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px]',
+                  'flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600',
                   item.active
                     ? 'bg-blue-50 text-blue-700 font-semibold'
                     : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
@@ -178,7 +183,7 @@ export function AppShell({ children }: AppShellProps) {
       </aside>
 
       {/* Main Content Pane */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+      <main id="main-content" tabIndex={-1} className="flex-1 flex flex-col min-w-0 overflow-y-auto outline-none">
         <div className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
           {children}
         </div>

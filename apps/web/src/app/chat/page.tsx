@@ -1139,21 +1139,23 @@ export default function ChatPage() {
                     {msg.followUpQuestions && msg.followUpQuestions.length > 0 && (
                       <div className="mt-3 pt-2.5 border-t border-slate-100">
                         <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                          <Sparkles className="w-3 h-3 text-blue-500" />
+                          <Sparkles className="w-3 h-3 text-blue-500" aria-hidden="true" />
                           <span>Suggested Follow-ups</span>
                         </div>
                         <div className="flex flex-wrap gap-1.5">
                           {msg.followUpQuestions.map((q, qIdx) => (
                             <button
                               key={qIdx}
+                              type="button"
+                              aria-label={`Ask follow-up question: ${q}`}
                               onClick={() => {
                                 setInput(q);
                               }}
-                              className="text-xs text-left px-3 py-1.5 rounded-full bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 hover:border-blue-200 transition-colors shadow-2xs inline-flex items-center gap-1.5 group cursor-pointer"
+                              className="text-xs text-left px-3 py-1.5 rounded-full bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 hover:border-blue-200 transition-colors shadow-2xs inline-flex items-center gap-1.5 group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                               title="Click to ask this follow-up question"
                             >
                               <span>{q}</span>
-                              <ChevronRight className="w-3 h-3 text-slate-400 group-hover:text-blue-600 transition-transform group-hover:translate-x-0.5" />
+                              <ChevronRight className="w-3 h-3 text-slate-400 group-hover:text-blue-600 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
                             </button>
                           ))}
                         </div>
@@ -1379,6 +1381,7 @@ export default function ChatPage() {
               <div className="relative mb-2">
                 <input
                   type="text"
+                  aria-label="Filter or highlight terms in excerpt"
                   placeholder="Filter or highlight terms in excerpt..."
                   value={highlightSearchTerm}
                   onChange={(e) => setHighlightSearchTerm(e.target.value)}

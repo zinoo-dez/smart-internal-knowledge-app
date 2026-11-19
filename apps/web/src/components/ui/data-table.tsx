@@ -27,7 +27,11 @@ export function DataTable<T extends object>({
 }: DataTableProps<T>) {
   if (isLoading) {
     return (
-      <div className="w-full bg-white rounded-lg border border-slate-200 p-8 flex flex-col items-center justify-center space-y-3">
+      <div
+        role="status"
+        aria-live="polite"
+        className="w-full bg-white rounded-lg border border-slate-200 p-8 flex flex-col items-center justify-center space-y-3"
+      >
         <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
         <p className="text-sm text-slate-500 font-medium">Loading records...</p>
       </div>
@@ -36,7 +40,12 @@ export function DataTable<T extends object>({
 
   return (
     <div className={cn('w-full bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden', className)}>
-      <div className="overflow-x-auto">
+      <div
+        tabIndex={0}
+        role="region"
+        aria-label="Scrollable data table"
+        className="overflow-x-auto focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500"
+      >
         <table className="w-full text-left text-sm text-slate-700">
           <thead className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider">
             <tr>

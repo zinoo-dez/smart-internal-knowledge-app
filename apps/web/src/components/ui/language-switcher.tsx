@@ -30,8 +30,10 @@ export function LanguageSwitcher({ className, compact = false }: LanguageSwitche
       <button
         type="button"
         onClick={() => setLanguage('en')}
+        aria-pressed={language === 'en'}
+        aria-label="Switch language to English"
         className={cn(
-          'px-2.5 py-1 rounded-md transition-all font-medium text-xs',
+          'px-2.5 py-1 rounded-md transition-all font-medium text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600',
           language === 'en'
             ? 'bg-white text-blue-700 shadow-sm font-semibold border border-slate-200/60'
             : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60',
@@ -42,8 +44,10 @@ export function LanguageSwitcher({ className, compact = false }: LanguageSwitche
       <button
         type="button"
         onClick={() => setLanguage('my')}
+        aria-pressed={language === 'my'}
+        aria-label="မြန်မာဘာသာသို့ ပြောင်းရန် (Switch language to Myanmar)"
         className={cn(
-          'px-2.5 py-1 rounded-md transition-all font-medium text-xs',
+          'px-2.5 py-1 rounded-md transition-all font-medium text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600',
           language === 'my'
             ? 'bg-white text-blue-700 shadow-sm font-semibold border border-slate-200/60'
             : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/60',

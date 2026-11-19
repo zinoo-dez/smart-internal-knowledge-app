@@ -589,12 +589,17 @@ export default function AdminMcpPage() {
 
       {/* 3-Step Custom MCP Connection Modal Dialog */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="mcp-wizard-title"
+          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4"
+        >
           <div className="bg-white rounded-xl shadow-xl border border-slate-200 max-w-xl w-full p-6 space-y-5 animate-in fade-in zoom-in-95 duration-150">
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div>
-                <h3 className="text-base font-bold text-slate-900">
+                <h3 id="mcp-wizard-title" className="text-base font-bold text-slate-900">
                   {t.mcpConnectCustom}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
@@ -605,17 +610,21 @@ export default function AdminMcpPage() {
               </div>
               <button
                 onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-md text-slate-400 hover:text-slate-700 min-h-[36px] min-w-[36px] flex items-center justify-center"
+                aria-label="Close dialog"
+                className="p-1 rounded-md text-slate-400 hover:text-slate-700 min-h-[36px] min-w-[36px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
               >
-                <X className="w-5 h-5" />
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
             </div>
 
             {/* Stepper Tabs */}
-            <div className="grid grid-cols-3 gap-2 border-b border-slate-100 pb-3 text-xs font-medium">
+            <div role="tablist" aria-label="MCP configuration steps" className="grid grid-cols-3 gap-2 border-b border-slate-100 pb-3 text-xs font-medium">
               <button
+                type="button"
+                role="tab"
+                aria-selected={wizardStep === 1}
                 onClick={() => setWizardStep(1)}
-                className={`pb-1 text-center border-b-2 transition-colors ${
+                className={`pb-1 text-center border-b-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                   wizardStep === 1
                     ? 'border-blue-600 text-blue-600 font-bold'
                     : 'border-transparent text-slate-500'
@@ -624,8 +633,11 @@ export default function AdminMcpPage() {
                 {t.mcpStepGeneral}
               </button>
               <button
+                type="button"
+                role="tab"
+                aria-selected={wizardStep === 2}
                 onClick={() => setWizardStep(2)}
-                className={`pb-1 text-center border-b-2 transition-colors ${
+                className={`pb-1 text-center border-b-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                   wizardStep === 2
                     ? 'border-blue-600 text-blue-600 font-bold'
                     : 'border-transparent text-slate-500'
@@ -634,8 +646,11 @@ export default function AdminMcpPage() {
                 {t.mcpStepAuth}
               </button>
               <button
+                type="button"
+                role="tab"
+                aria-selected={wizardStep === 3}
                 onClick={() => setWizardStep(3)}
-                className={`pb-1 text-center border-b-2 transition-colors ${
+                className={`pb-1 text-center border-b-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                   wizardStep === 3
                     ? 'border-blue-600 text-blue-600 font-bold'
                     : 'border-transparent text-slate-500'
@@ -649,10 +664,11 @@ export default function AdminMcpPage() {
             {wizardStep === 1 && (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label htmlFor="mcp-server-name-input" className="block text-xs font-semibold text-slate-700 mb-1">
                     {t.mcpServerName} *
                   </label>
                   <input
+                    id="mcp-server-name-input"
                     type="text"
                     value={formName}
                     onChange={(e) => setFormName(e.target.value)}
@@ -662,10 +678,11 @@ export default function AdminMcpPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label htmlFor="mcp-description-input" className="block text-xs font-semibold text-slate-700 mb-1">
                     {isMyanmar ? 'ဖော်ပြချက်' : 'Description'}
                   </label>
                   <input
+                    id="mcp-description-input"
                     type="text"
                     value={formDescription}
                     onChange={(e) => setFormDescription(e.target.value)}
@@ -675,48 +692,61 @@ export default function AdminMcpPage() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-2">
+                  <span className="block text-xs font-semibold text-slate-700 mb-2">
                     {t.mcpTransport}
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label
+                  </span>
+                  <div role="radiogroup" aria-label="Transport type" className="grid grid-cols-2 gap-3">
+                    <div
+                      role="radio"
+                      aria-checked={formTransport === McpTransport.SSE}
+                      tabIndex={0}
                       onClick={() => setFormTransport(McpTransport.SSE)}
-                      className={`p-3 rounded-lg border text-xs cursor-pointer flex items-center gap-2.5 transition-all ${
+                      onKeyDown={(e) => {
+                        if (e.key === ' ' || e.key === 'Enter') setFormTransport(McpTransport.SSE);
+                      }}
+                      className={`p-3 rounded-lg border text-xs cursor-pointer flex items-center gap-2.5 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                         formTransport === McpTransport.SSE
                           ? 'border-blue-600 bg-blue-50/40 text-blue-900 font-semibold shadow-xs'
                           : 'border-slate-200 bg-white text-slate-600'
                       }`}
                     >
-                      <Radio className="w-4 h-4 text-blue-600" />
+                      <Radio className="w-4 h-4 text-blue-600" aria-hidden="true" />
                       <div>
                         <div>SSE / Remote HTTP</div>
                         <div className="text-[11px] text-slate-500 font-normal">Cloud & Microservices</div>
                       </div>
-                    </label>
+                    </div>
 
-                    <label
+                    <div
+                      role="radio"
+                      aria-checked={formTransport === McpTransport.STDIO}
+                      tabIndex={0}
                       onClick={() => setFormTransport(McpTransport.STDIO)}
-                      className={`p-3 rounded-lg border text-xs cursor-pointer flex items-center gap-2.5 transition-all ${
+                      onKeyDown={(e) => {
+                        if (e.key === ' ' || e.key === 'Enter') setFormTransport(McpTransport.STDIO);
+                      }}
+                      className={`p-3 rounded-lg border text-xs cursor-pointer flex items-center gap-2.5 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
                         formTransport === McpTransport.STDIO
                           ? 'border-blue-600 bg-blue-50/40 text-blue-900 font-semibold shadow-xs'
                           : 'border-slate-200 bg-white text-slate-600'
                       }`}
                     >
-                      <Radio className="w-4 h-4 text-blue-600" />
+                      <Radio className="w-4 h-4 text-blue-600" aria-hidden="true" />
                       <div>
                         <div>Stdio / Container</div>
                         <div className="text-[11px] text-slate-500 font-normal">Local CLI & Docker</div>
                       </div>
-                    </label>
+                    </div>
                   </div>
                 </div>
 
                 {formTransport === McpTransport.SSE ? (
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    <label htmlFor="mcp-endpoint-url-input" className="block text-xs font-semibold text-slate-700 mb-1">
                       {t.mcpEndpointUrl} *
                     </label>
                     <input
+                      id="mcp-endpoint-url-input"
                       type="url"
                       value={formEndpointUrl}
                       onChange={(e) => setFormEndpointUrl(e.target.value)}
@@ -726,10 +756,11 @@ export default function AdminMcpPage() {
                   </div>
                 ) : (
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    <label htmlFor="mcp-command-input" className="block text-xs font-semibold text-slate-700 mb-1">
                       {isMyanmar ? 'Docker / Shell Command' : 'Command execution line'} *
                     </label>
                     <input
+                      id="mcp-command-input"
                       type="text"
                       value={formCommand}
                       onChange={(e) => setFormCommand(e.target.value)}
