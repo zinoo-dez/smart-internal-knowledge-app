@@ -30,6 +30,7 @@ export function AppShell({ children }: AppShellProps) {
   const { t } = useLanguage();
 
   const isLandingPage = pathname === '/';
+  const isChatPage = pathname === '/chat';
 
   if (isLandingPage) {
     return (
@@ -92,27 +93,38 @@ export function AppShell({ children }: AppShellProps) {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
-      {/* Mobile Header Bar */}
-      <div className="md:hidden bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-40">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
-            KA
+      {/* Mobile Header Bar (suppressed on /chat to provide dedicated Gemini mobile header) */}
+      {!isChatPage && (
+        <div className="md:hidden bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-40">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
+              KA
+            </div>
+            <span className="font-semibold text-slate-900 text-sm">{t.appTitle}</span>
           </div>
-          <span className="font-semibold text-slate-900 text-sm">{t.appTitle}</span>
+          <div className="flex items-center gap-2">
+            <LanguageSwitcher compact />
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              aria-label="Toggle Navigation"
+              aria-expanded={mobileMenuOpen}
+              aria-controls="desktop-sidebar-nav"
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <LanguageSwitcher compact />
-          <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-2 rounded-lg text-slate-600 hover:bg-slate-100 min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
-            aria-label="Toggle Navigation"
-            aria-expanded={mobileMenuOpen}
-            aria-controls="desktop-sidebar-nav"
-          >
-            {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
-        </div>
-      </div>
+      )}
+
+      {/* Backdrop overlay for mobile navigation menu */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-20 md:hidden transition-opacity"
+          onClick={() => setMobileMenuOpen(false)}
+          aria-hidden="true"
+        />
+      )}
 
       {/* Desktop Navigation Sidebar */}
       <aside
@@ -183,8 +195,20 @@ export function AppShell({ children }: AppShellProps) {
       </aside>
 
       {/* Main Content Pane */}
-      <main id="main-content" tabIndex={-1} className="flex-1 flex flex-col min-w-0 overflow-y-auto outline-none">
-        <div className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className={cn(
+          'flex-1 flex flex-col min-w-0 outline-none',
+          isChatPage ? 'h-dvh overflow-hidden p-0' : 'overflow-y-auto',
+        )}
+      >
+        <div
+          className={cn(
+            'flex-1 w-full',
+            isChatPage ? 'h-full p-0 flex flex-col' : 'p-4 md:p-8 max-w-7xl mx-auto',
+          )}
+        >
           {children}
         </div>
       </main>

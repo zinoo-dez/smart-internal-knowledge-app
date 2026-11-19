@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import Link from 'next/link';
 import {
   Send,
   Bot,
@@ -30,6 +31,12 @@ import {
   Calendar,
   Copy,
   Highlighter,
+  Menu,
+  BarChart3,
+  FileText,
+  ShieldCheck,
+  CreditCard,
+  HelpCircle,
 } from 'lucide-react';
 import { ConversationSummary, DocumentCitation, FeedbackType } from '@knowledge/shared';
 import {
@@ -42,6 +49,7 @@ import {
 import { useLanguage } from '@/context/language-context';
 import { LanguageSwitcher } from '@/components/ui/language-switcher';
 import { MarkdownContent } from '@/components/ui/markdown-content';
+import { cn } from '@/lib/utils';
 
 interface ModelOption {
   id: string;
@@ -143,7 +151,8 @@ export default function ChatPage() {
   const [selectedModel, setSelectedModel] = useState<ModelOption>(AVAILABLE_MODELS[2]); // Default Pro
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isDesktopSidebarOpen, setIsDesktopSidebarOpen] = useState(true);
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [openAccordions, setOpenAccordions] = useState<Record<string, boolean>>({});
 
   // Gemini UI States
@@ -175,13 +184,14 @@ export default function ChatPage() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (isModelDropdownOpen) setIsModelDropdownOpen(false);
+        if (isMobileDrawerOpen) setIsMobileDrawerOpen(false);
         if (selectedCitation) setSelectedCitation(null);
         if (ticketModalOpen) setTicketModalOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isModelDropdownOpen, selectedCitation, ticketModalOpen]);
+  }, [isModelDropdownOpen, isMobileDrawerOpen, selectedCitation, ticketModalOpen]);
 
   // Auto-seed highlight search term from latest user inquiry
   useEffect(() => {
@@ -291,6 +301,7 @@ export default function ChatPage() {
 
   const handleSelectThread = async (threadId: string) => {
     if (isStreaming || threadId === activeConversationId) return;
+    setIsMobileDrawerOpen(false);
     try {
       const detail = await fetchConversationDetail(threadId);
       setActiveConversationId(detail.id);
@@ -312,6 +323,7 @@ export default function ChatPage() {
 
   const handleNewChat = () => {
     if (isStreaming) return;
+    setIsMobileDrawerOpen(false);
     setActiveConversationId(null);
     setMessages([]);
   };
@@ -586,7 +598,7 @@ export default function ChatPage() {
     <div
       role="listbox"
       aria-label="AI Model Options"
-      className={`absolute ${positionClasses} z-40 w-72 bg-white rounded-2xl shadow-xl border border-slate-200/90 p-2 text-xs divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-150`}
+      className={`absolute ${positionClasses} z-40 w-72 max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-xl border border-slate-200/90 p-2 text-xs divide-y divide-slate-100 animate-in fade-in zoom-in-95 duration-150`}
     >
       <div className="py-1 space-y-0.5">
         {AVAILABLE_MODELS.map((model) => {
@@ -666,149 +678,223 @@ export default function ChatPage() {
   );
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] gap-4 relative">
-      {/* Left: Thread History Sidebar */}
+    <div className="flex h-full w-full md:gap-4 relative overflow-hidden md:p-3 lg:p-4">
+      {/* Mobile Drawer Backdrop */}
+      {isMobileDrawerOpen && (
+        <div
+          className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-40 md:hidden transition-opacity"
+          onClick={() => setIsMobileDrawerOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Left: Thread History Sidebar (Desktop) / Slide-over Drawer (Mobile) */}
       <aside
         aria-label="Conversation history"
-        className={`shrink-0 transition-all duration-200 flex flex-col bg-white rounded-xl border border-slate-200/80 shadow-xs overflow-hidden ${
-          isSidebarOpen ? 'w-64' : 'w-0 border-none'
-        }`}
-      >
-        {isSidebarOpen && (
-          <div className="flex flex-col h-full p-3 space-y-3">
-            {/* New Chat Button */}
-            <button
-              onClick={handleNewChat}
-              disabled={isStreaming}
-              aria-label={t.newConversation}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
-            >
-              <Plus className="w-4 h-4" aria-hidden="true" />
-              <span>{t.newConversation}</span>
-            </button>
-
-            {/* Threads Header */}
-            <div className="flex items-center justify-between px-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-              <span>{t.pastConversations}</span>
-              <span className="font-mono text-slate-500" aria-label={`${conversations.length} total saved conversations`}>
-                {conversations.length}
-              </span>
-            </div>
-
-            {/* Threads List */}
-            <nav aria-label="Past conversations" className="flex-1 overflow-y-auto space-y-1">
-              {conversations.length === 0 ? (
-                <div className="text-center py-8 text-xs text-slate-400">
-                  {t.noConversations}
-                </div>
-              ) : (
-                conversations.map((thread) => {
-                  const isActive = activeConversationId === thread.id;
-                  return (
-                    <div
-                      key={thread.id}
-                      onClick={() => handleSelectThread(thread.id)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          handleSelectThread(thread.id);
-                        }
-                      }}
-                      aria-current={isActive ? 'true' : undefined}
-                      aria-label={`Open conversation: ${thread.title}`}
-                      className={`group flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
-                        isActive
-                          ? 'bg-blue-50 text-blue-900 font-semibold border border-blue-200/60'
-                          : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 truncate min-w-0">
-                        <MessageSquare
-                          aria-hidden="true"
-                          className={`w-3.5 h-3.5 shrink-0 ${
-                            isActive ? 'text-blue-600' : 'text-slate-400'
-                          }`}
-                        />
-                        <span className="truncate">{thread.title}</span>
-                      </div>
-                      <button
-                        onClick={(e) => handleDeleteThread(thread.id, e)}
-                        aria-label={`Delete conversation: ${thread.title}`}
-                        className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-600 transition-opacity shrink-0 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 rounded"
-                        title="Delete conversation"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-            </nav>
-          </div>
+        className={cn(
+          'transition-all duration-200 flex flex-col bg-white overflow-hidden',
+          // Mobile: slide-over drawer
+          'fixed inset-y-0 left-0 z-50 w-72 sm:w-80 shadow-2xl md:shadow-xs md:static md:z-auto md:rounded-xl md:border md:border-slate-200/80',
+          isMobileDrawerOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+          // Desktop: collapsible panel
+          isDesktopSidebarOpen ? 'md:w-64' : 'md:w-0 md:border-none',
         )}
+      >
+        <div className="flex flex-col h-full p-3 space-y-3">
+          {/* Mobile Drawer Brand Header with Close Button */}
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100 md:hidden">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-xs">
+                KA
+              </div>
+              <span className="font-semibold text-slate-900 text-xs">{t.appTitle}</span>
+            </div>
+            <button
+              onClick={() => setIsMobileDrawerOpen(false)}
+              aria-label="Close menu"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+            >
+              <X className="w-5 h-5" aria-hidden="true" />
+            </button>
+          </div>
+
+          {/* New Chat Button */}
+          <button
+            onClick={handleNewChat}
+            disabled={isStreaming}
+            aria-label={t.newConversation}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors min-h-[44px] sm:min-h-[40px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+          >
+            <Plus className="w-4 h-4" aria-hidden="true" />
+            <span>{t.newConversation}</span>
+          </button>
+
+          {/* Threads Header */}
+          <div className="flex items-center justify-between px-1 text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
+            <span>{t.pastConversations}</span>
+            <span className="font-mono text-slate-500" aria-label={`${conversations.length} total saved conversations`}>
+              {conversations.length}
+            </span>
+          </div>
+
+          {/* Threads List */}
+          <nav aria-label="Past conversations" className="flex-1 overflow-y-auto space-y-1">
+            {conversations.length === 0 ? (
+              <div className="text-center py-6 text-xs text-slate-400">
+                {t.noConversations}
+              </div>
+            ) : (
+              conversations.map((thread) => {
+                const isActive = activeConversationId === thread.id;
+                return (
+                  <div
+                    key={thread.id}
+                    onClick={() => handleSelectThread(thread.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        handleSelectThread(thread.id);
+                      }
+                    }}
+                    aria-current={isActive ? 'true' : undefined}
+                    aria-label={`Open conversation: ${thread.title}`}
+                    className={`group flex items-center justify-between p-2 rounded-lg text-xs cursor-pointer transition-colors min-h-[38px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+                      isActive
+                        ? 'bg-blue-50 text-blue-900 font-semibold border border-blue-200/60'
+                        : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 truncate min-w-0">
+                      <MessageSquare
+                        aria-hidden="true"
+                        className={`w-3.5 h-3.5 shrink-0 ${
+                          isActive ? 'text-blue-600' : 'text-slate-400'
+                        }`}
+                      />
+                      <span className="truncate">{thread.title}</span>
+                    </div>
+                    <button
+                      onClick={(e) => handleDeleteThread(thread.id, e)}
+                      aria-label={`Delete conversation: ${thread.title}`}
+                      className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-600 transition-opacity shrink-0 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600 rounded"
+                      title="Delete conversation"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </nav>
+
+          {/* Mobile-Only Workspace Navigation Links */}
+          <div className="pt-2 border-t border-slate-100 md:hidden space-y-1">
+            <div className="px-2 pb-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
+              {t.navWorkspace}
+            </div>
+            {[
+              { label: t.navDocuments, href: '/admin/documents', icon: FileText },
+              { label: t.navKnowledgeGaps, href: '/admin/knowledge-gaps', icon: AlertCircle },
+              { label: t.navAnalytics, href: '/admin/analytics', icon: BarChart3 },
+              { label: t.navAuditLogs, href: '/admin/audit-logs', icon: ShieldCheck },
+              { label: t.navBilling, href: '/admin/billing', icon: CreditCard },
+              { label: t.navMcp, href: '/admin/mcp', icon: Cpu },
+              { label: t.navDocs, href: '/docs', icon: HelpCircle },
+            ].map((link) => {
+              const Icon = link.icon;
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setIsMobileDrawerOpen(false)}
+                  className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors min-h-[38px]"
+                >
+                  <Icon className="w-4 h-4 text-slate-400" />
+                  <span>{link.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+
+          {/* Mobile Footer with Org info & Language */}
+          <div className="pt-2 border-t border-slate-100 md:hidden flex items-center justify-between text-[11px] text-slate-500">
+            <span className="truncate">Org: mock-org-default</span>
+            <LanguageSwitcher compact />
+          </div>
+        </div>
       </aside>
 
       {/* Main Screen Container */}
       <main
         aria-label="Assistant workspace"
-        className="flex-1 flex flex-col min-w-0 bg-white rounded-xl border border-slate-200/80 shadow-xs relative overflow-hidden"
+        className="flex-1 flex flex-col min-w-0 bg-white md:rounded-xl md:border md:border-slate-200/80 md:shadow-xs relative overflow-hidden h-full"
       >
         {/* Top Header Bar */}
-        <header className="px-4 py-3 border-b border-slate-200/80 shrink-0 flex items-center justify-between">
+        <header className="px-3 sm:px-4 py-2.5 sm:py-3 border-b border-slate-200/80 shrink-0 flex items-center justify-between bg-white/95 backdrop-blur-md sticky top-0 z-20">
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              aria-label={isSidebarOpen ? 'Hide conversation sidebar' : 'Show conversation sidebar'}
-              aria-expanded={isSidebarOpen}
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
-              title={isSidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
+              onClick={() => {
+                if (window.innerWidth < 768) {
+                  setIsMobileDrawerOpen(!isMobileDrawerOpen);
+                } else {
+                  setIsDesktopSidebarOpen(!isDesktopSidebarOpen);
+                }
+              }}
+              aria-label={
+                isDesktopSidebarOpen ? 'Hide conversation sidebar' : 'Show conversation sidebar'
+              }
+              aria-expanded={isMobileDrawerOpen || isDesktopSidebarOpen}
+              className="p-2 sm:p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              title="Toggle Sidebar"
             >
-              {isSidebarOpen ? (
-                <PanelLeftClose className="w-4 h-4" aria-hidden="true" />
-              ) : (
-                <PanelLeftOpen className="w-4 h-4" aria-hidden="true" />
-              )}
+              <Menu className="w-5 h-5 md:hidden" aria-hidden="true" />
+              <span className="hidden md:inline">
+                {isDesktopSidebarOpen ? (
+                  <PanelLeftClose className="w-4 h-4 text-slate-500" aria-hidden="true" />
+                ) : (
+                  <PanelLeftOpen className="w-4 h-4 text-slate-500" aria-hidden="true" />
+                )}
+              </span>
             </button>
             <div className="flex items-center gap-2">
-              <Bot className="w-4 h-4 text-blue-600" aria-hidden="true" />
+              <Bot className="w-4 h-4 text-blue-600 shrink-0" aria-hidden="true" />
               <span className="text-xs font-semibold text-slate-800 tracking-tight">
                 {t.appTitle}
               </span>
-              <span className="hidden sm:inline-block text-[11px] text-slate-400 font-normal">
+              <span className="hidden md:inline-block text-[11px] text-slate-400 font-normal">
                 · {selectedModel.name}
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {!isWelcomeState && (
-              <button
-                onClick={handleNewChat}
-                disabled={isStreaming}
-                aria-label={t.newConversation}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
-              >
-                <Plus className="w-3.5 h-3.5" aria-hidden="true" />
-                <span className="hidden sm:inline">{t.newConversation}</span>
-              </button>
-            )}
-            <LanguageSwitcher />
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <button
+              onClick={handleNewChat}
+              disabled={isStreaming}
+              aria-label={t.newConversation}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors min-h-[44px] sm:min-h-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+              title={t.newConversation}
+            >
+              <Plus className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-blue-600" aria-hidden="true" />
+              <span className="hidden sm:inline">{t.newConversation}</span>
+            </button>
+            <LanguageSwitcher compact />
           </div>
         </header>
 
         {/* View Switch: Center-Stage Empty State vs Active Message Stream */}
         {isWelcomeState ? (
-          <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 overflow-y-auto bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-50/30 via-white to-white">
+          <div className="flex-1 flex flex-col items-center justify-center px-3 sm:px-4 py-6 sm:py-8 overflow-y-auto bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-50/30 via-white to-white">
             {/* Center-Stage Greeting */}
-            <div className="text-center mb-8 space-y-2">
-              <h1 className="text-3xl sm:text-4xl font-normal text-slate-800 tracking-tight">
+            <div className="text-center mb-6 sm:mb-8 space-y-1.5 sm:space-y-2 px-2">
+              <h1 className="text-2xl sm:text-4xl font-normal text-slate-800 tracking-tight">
                 {t.geminiGreeting}
               </h1>
             </div>
 
             {/* Omnibox Floating Pill Container */}
-            <div className="w-full max-w-2xl relative" ref={modelDropdownRef}>
+            <div className="w-full max-w-2xl relative px-1 sm:px-0" ref={modelDropdownRef}>
               <form
                 role="search"
                 aria-label="Internal Knowledge Search"
@@ -818,7 +904,7 @@ export default function ChatPage() {
                 }}
                 className="relative"
               >
-                <div className="rounded-full bg-white border border-slate-200/90 shadow-sm hover:shadow-md focus-within:shadow-md focus-within:border-slate-300 transition-all p-1.5 pl-3.5 pr-2 flex items-center gap-2.5 min-h-[48px]">
+                <div className="rounded-full bg-white border border-slate-200/90 shadow-sm hover:shadow-md focus-within:shadow-md focus-within:border-slate-300 transition-all p-1.5 pl-3 sm:pl-3.5 pr-2 flex items-center gap-2 sm:gap-2.5 min-h-[48px]">
                   {/* Plus Action Button */}
                   <button
                     type="button"
@@ -837,7 +923,7 @@ export default function ChatPage() {
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     disabled={isStreaming}
-                    className="flex-1 bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 text-sm sm:text-base py-2 min-w-0"
+                    className="flex-1 bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 text-base py-2 min-w-0"
                     autoFocus
                   />
 
@@ -849,7 +935,7 @@ export default function ChatPage() {
                       aria-expanded={isModelDropdownOpen}
                       aria-label={`Select AI Model. Current model is ${selectedModel.name}`}
                       onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                      className="rounded-full bg-slate-100/90 hover:bg-slate-200/80 px-3 py-1.5 text-xs font-semibold text-slate-700 flex items-center gap-1.5 transition-colors shrink-0 border border-slate-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                      className="rounded-full bg-slate-100/90 hover:bg-slate-200/80 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-slate-700 flex items-center gap-1 sm:gap-1.5 transition-colors shrink-0 border border-slate-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                     >
                       <span>{selectedModel.shortLabel}</span>
                       <ChevronDown
@@ -887,14 +973,18 @@ export default function ChatPage() {
                 </div>
               </form>
 
-              {/* Mode Switcher Pills */}
-              <div role="tablist" aria-label="Assistant modes" className="flex items-center justify-center gap-2 mt-4">
+              {/* Mode Switcher Pills (Horizontally Scrollable on Mobile) */}
+              <div
+                role="tablist"
+                aria-label="Assistant modes"
+                className="flex items-center gap-2 mt-4 overflow-x-auto no-scrollbar w-full px-1 py-1 justify-start sm:justify-center"
+              >
                 <button
                   type="button"
                   role="tab"
                   aria-selected={activeMode === 'chat'}
                   onClick={() => setActiveMode('chat')}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+                  className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 min-h-[36px] flex items-center ${
                     activeMode === 'chat'
                       ? 'bg-slate-100 text-slate-900 font-semibold border border-slate-300/80 shadow-xs'
                       : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/70'
@@ -907,7 +997,7 @@ export default function ChatPage() {
                   role="tab"
                   aria-selected={activeMode === 'tools'}
                   onClick={() => setActiveMode('tools')}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+                  className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 min-h-[36px] ${
                     activeMode === 'tools'
                       ? 'bg-blue-50 text-blue-900 font-semibold border border-blue-200 shadow-xs'
                       : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/70'
@@ -921,7 +1011,7 @@ export default function ChatPage() {
                   role="tab"
                   aria-selected={activeMode === 'research'}
                   onClick={() => setActiveMode('research')}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 ${
+                  className={`shrink-0 px-3.5 py-1.5 rounded-full text-xs font-medium transition-all flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 min-h-[36px] ${
                     activeMode === 'research'
                       ? 'bg-indigo-50 text-indigo-900 font-semibold border border-indigo-200 shadow-xs'
                       : 'bg-white hover:bg-slate-100 text-slate-600 border border-slate-200/70'
@@ -932,20 +1022,20 @@ export default function ChatPage() {
                 </button>
               </div>
 
-              {/* Vertical Prompt Cards (Inspired by Gemini Reference UI) */}
-              <div aria-label="Suggested prompts" className="mt-8 space-y-1 max-w-xl mx-auto">
+              {/* Responsive Suggested Prompts Grid */}
+              <div aria-label="Suggested prompts" className="mt-6 sm:mt-8 grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-xl mx-auto px-1">
                 {promptSuggestions.map((item, idx) => (
                   <button
                     key={idx}
                     type="button"
                     aria-label={`Suggested inquiry: ${item.text}`}
                     onClick={() => handleSend(item.text)}
-                    className="w-full flex items-center gap-3.5 py-2.5 px-3 rounded-xl hover:bg-slate-100/60 text-left transition-all text-slate-600 hover:text-slate-900 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                    className="w-full flex items-center gap-3 py-2.5 px-3 rounded-xl bg-slate-50/70 hover:bg-slate-100 sm:bg-transparent border border-slate-200/50 sm:border-transparent text-left transition-all text-slate-700 hover:text-slate-900 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 min-h-[44px]"
                   >
                     <span className="text-slate-400 group-hover:text-blue-600 transition-colors shrink-0" aria-hidden="true">
                       {item.icon}
                     </span>
-                    <span className="text-sm font-normal truncate">
+                    <span className="text-xs sm:text-sm font-normal truncate">
                       {item.text}
                     </span>
                   </button>
@@ -1215,8 +1305,8 @@ export default function ChatPage() {
             </div>
 
             {/* Bottom Docked Floating Omnibox */}
-            <div className="p-3 pb-4 bg-gradient-to-t from-white via-white/95 to-transparent shrink-0">
-              <div className="w-full max-w-3xl mx-auto relative" ref={modelDropdownRef}>
+            <div className="p-2 sm:p-3 pb-safe bg-gradient-to-t from-white via-white/95 to-transparent shrink-0">
+              <div className="w-full max-w-3xl mx-auto relative px-1 sm:px-0" ref={modelDropdownRef}>
                 <form
                   role="search"
                   aria-label="Internal Knowledge Search"
@@ -1226,7 +1316,7 @@ export default function ChatPage() {
                   }}
                   className="relative"
                 >
-                  <div className="rounded-full bg-white border border-slate-200/90 shadow-sm hover:shadow-md focus-within:shadow-md focus-within:border-slate-300 transition-all p-1.5 pl-3.5 pr-2 flex items-center gap-2.5 min-h-[48px]">
+                  <div className="rounded-full bg-white border border-slate-200/90 shadow-sm hover:shadow-md focus-within:shadow-md focus-within:border-slate-300 transition-all p-1.5 pl-3 sm:pl-3.5 pr-2 flex items-center gap-2 sm:gap-2.5 min-h-[48px]">
                     {/* Plus Action Button */}
                     <button
                       type="button"
@@ -1245,7 +1335,7 @@ export default function ChatPage() {
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       disabled={isStreaming}
-                      className="flex-1 bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 text-sm sm:text-base py-2 min-w-0"
+                      className="flex-1 bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 text-base py-2 min-w-0"
                       autoFocus
                     />
 
@@ -1257,7 +1347,7 @@ export default function ChatPage() {
                         aria-expanded={isModelDropdownOpen}
                         aria-label={`Select AI Model. Current model is ${selectedModel.name}`}
                         onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                        className="rounded-full bg-slate-100/90 hover:bg-slate-200/80 px-3 py-1.5 text-xs font-semibold text-slate-700 flex items-center gap-1.5 transition-colors shrink-0 border border-slate-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                        className="rounded-full bg-slate-100/90 hover:bg-slate-200/80 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-slate-700 flex items-center gap-1 sm:gap-1.5 transition-colors shrink-0 border border-slate-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                       >
                         <span>{selectedModel.shortLabel}</span>
                         <ChevronDown
@@ -1302,111 +1392,118 @@ export default function ChatPage() {
 
       {/* Right-Side Slide-out Citation Inspection Drawer */}
       {selectedCitation && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="citation-drawer-heading"
-          className="fixed inset-y-0 right-0 z-50 w-full sm:w-96 bg-white border-l border-slate-200 shadow-2xl p-6 flex flex-col animate-in slide-in-from-right duration-200"
-        >
-          <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-            <div id="citation-drawer-heading" className="flex items-center gap-2 font-semibold text-slate-900 text-sm">
-              <BookOpen className="w-4 h-4 text-blue-600" aria-hidden="true" />
-              <span>{t.drawerTitle}</span>
-            </div>
-            <button
-              onClick={() => setSelectedCitation(null)}
-              aria-label="Close citation inspector"
-              className="p-1 rounded-md text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
-            >
-              <X className="w-5 h-5" aria-hidden="true" />
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto py-5 space-y-4">
-            <div>
-              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-                {t.sourceDoc}
+        <>
+          <div
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-40 transition-opacity"
+            onClick={() => setSelectedCitation(null)}
+            aria-hidden="true"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="citation-drawer-heading"
+            className="fixed inset-y-0 right-0 z-50 w-full sm:w-96 bg-white border-l border-slate-200 shadow-2xl p-6 flex flex-col animate-in slide-in-from-right duration-200"
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+              <div id="citation-drawer-heading" className="flex items-center gap-2 font-semibold text-slate-900 text-sm">
+                <BookOpen className="w-4 h-4 text-blue-600" aria-hidden="true" />
+                <span>{t.drawerTitle}</span>
               </div>
-              <div className="font-semibold text-slate-900 text-sm leading-snug">
-                {selectedCitation.documentTitle}
-              </div>
-              <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-                Provenance: Chunk #{selectedCitation.chunkId.slice(0, 8)}
-              </div>
-            </div>
-
-            <div>
-              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
-                {t.relevanceMatch}
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                  {selectedCitation.source}
-                </span>
-                <span className="text-xs text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
-                  Score: {(selectedCitation.relevanceScore * 100).toFixed(1)}%
-                </span>
-                <span className="text-xs text-blue-700 font-medium bg-blue-50 border border-blue-100 px-2 py-0.5 rounded">
-                  Role: ACL Verified
-                </span>
-              </div>
-            </div>
-
-            {/* Keyword Highlighting Controls */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-                  <Highlighter className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Interactive Source Highlighting</span>
-                </div>
-                <button
-                  onClick={handleCopyCitation}
-                  className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:text-blue-600 px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
-                  title="Copy excerpt to clipboard"
-                >
-                  {copiedCitationSnippet ? (
-                    <>
-                      <Check className="w-3 h-3 text-emerald-600" />
-                      <span className="text-emerald-600">Copied</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3 h-3 text-slate-500" />
-                      <span>Copy Excerpt</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div className="relative mb-2">
-                <input
-                  type="text"
-                  aria-label="Filter or highlight terms in excerpt"
-                  placeholder="Filter or highlight terms in excerpt..."
-                  value={highlightSearchTerm}
-                  onChange={(e) => setHighlightSearchTerm(e.target.value)}
-                  className="w-full pl-2.5 pr-2 py-1.5 text-xs rounded-md border border-slate-200 focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none bg-slate-50/50"
-                />
-              </div>
-
-              <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 leading-relaxed font-sans whitespace-pre-wrap select-text">
-                {renderHighlightedSnippet(selectedCitation.snippet, highlightSearchTerm)}
-              </div>
-            </div>
-
-            {selectedCitation.sourceUrl && (
-              <a
-                href={selectedCitation.sourceUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-blue-600 font-semibold hover:underline pt-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+              <button
+                onClick={() => setSelectedCitation(null)}
+                aria-label="Close citation inspector"
+                className="p-1 rounded-md text-slate-400 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
               >
-                <span>Open original document</span>
-                <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
-              </a>
-            )}
+                <X className="w-5 h-5" aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto py-5 space-y-4">
+              <div>
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                  {t.sourceDoc}
+                </div>
+                <div className="font-semibold text-slate-900 text-sm leading-snug">
+                  {selectedCitation.documentTitle}
+                </div>
+                <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+                  Provenance: Chunk #{selectedCitation.chunkId.slice(0, 8)}
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+                  {t.relevanceMatch}
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                    {selectedCitation.source}
+                  </span>
+                  <span className="text-xs text-emerald-700 font-semibold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">
+                    Score: {(selectedCitation.relevanceScore * 100).toFixed(1)}%
+                  </span>
+                  <span className="text-xs text-blue-700 font-medium bg-blue-50 border border-blue-100 px-2 py-0.5 rounded">
+                    Role: ACL Verified
+                  </span>
+                </div>
+              </div>
+
+              {/* Keyword Highlighting Controls */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                    <Highlighter className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Interactive Source Highlighting</span>
+                  </div>
+                  <button
+                    onClick={handleCopyCitation}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 hover:text-blue-600 px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
+                    title="Copy excerpt to clipboard"
+                  >
+                    {copiedCitationSnippet ? (
+                      <>
+                        <Check className="w-3 h-3 text-emerald-600" />
+                        <span className="text-emerald-600">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3 h-3 text-slate-500" />
+                        <span>Copy Excerpt</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <div className="relative mb-2">
+                  <input
+                    type="text"
+                    aria-label="Filter or highlight terms in excerpt"
+                    placeholder="Filter or highlight terms in excerpt..."
+                    value={highlightSearchTerm}
+                    onChange={(e) => setHighlightSearchTerm(e.target.value)}
+                    className="w-full pl-2.5 pr-2 py-1.5 text-xs rounded-md border border-slate-200 focus:border-amber-400 focus:ring-1 focus:ring-amber-400 outline-none bg-slate-50/50"
+                  />
+                </div>
+
+                <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-800 leading-relaxed font-sans whitespace-pre-wrap select-text">
+                  {renderHighlightedSnippet(selectedCitation.snippet, highlightSearchTerm)}
+                </div>
+              </div>
+
+              {selectedCitation.sourceUrl && (
+                <a
+                  href={selectedCitation.sourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-blue-600 font-semibold hover:underline pt-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
+                >
+                  <span>Open original document</span>
+                  <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
+                </a>
+              )}
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Support Ticket Modal Dialog */}
@@ -1417,7 +1514,7 @@ export default function ChatPage() {
           aria-labelledby="ticket-dialog-heading"
           className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center p-4"
         >
-          <div className="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full p-6">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full p-6 max-h-[90dvh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
               <div id="ticket-dialog-heading" className="flex items-center gap-2 font-semibold text-slate-900">
                 <LifeBuoy className="w-5 h-5 text-blue-600" aria-hidden="true" />
