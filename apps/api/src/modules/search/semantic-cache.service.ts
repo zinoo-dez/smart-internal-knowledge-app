@@ -54,11 +54,17 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
   onModuleInit(): void {
     if (!this.redisClient && process.env.REDIS_URL && process.env.NODE_ENV !== 'test') {
       try {
-        this.redisClient = new Redis(process.env.REDIS_URL, {
+        const rawUrl = process.env.REDIS_URL;
+        const redisUrl =
+          rawUrl.includes('upstash.io') && rawUrl.startsWith('redis://')
+            ? rawUrl.replace('redis://', 'rediss://')
+            : rawUrl;
+        this.redisClient = new Redis(redisUrl, {
           maxRetriesPerRequest: 1,
           connectTimeout: 2000,
           retryStrategy: (times) => (times > 3 ? null : Math.min(times * 200, 1000)),
           lazyConnect: true,
+          tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
         });
 
         this.redisClient.on('connect', () => {

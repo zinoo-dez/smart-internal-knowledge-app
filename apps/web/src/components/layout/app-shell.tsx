@@ -30,7 +30,7 @@ export function AppShell({ children }: AppShellProps) {
   const { t } = useLanguage();
 
   const isLandingPage = pathname === '/';
-  const isChatPage = pathname === '/chat';
+  const isChatPage = pathname === '/chat' || pathname?.startsWith('/chat');
 
   if (isLandingPage) {
     return (

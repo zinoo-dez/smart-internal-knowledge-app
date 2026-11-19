@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import { ConversationSummary, DocumentCitation, FeedbackType } from '@knowledge/shared';
 import {
+  API_BASE_URL,
   createSupportTicket,
   deleteConversation,
   fetchConversationDetail,
@@ -360,7 +361,7 @@ export default function ChatPage() {
     setIsStreaming(true);
 
     try {
-      const response = await fetch('http://localhost:4000/api/chat/stream', {
+      const response = await fetch(`${API_BASE_URL}/api/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

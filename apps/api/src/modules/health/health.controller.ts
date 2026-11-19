@@ -54,13 +54,18 @@ export class HealthController {
     }
 
     // 2. Probe Redis Connectivity
-    const redisUrl = process.env.REDIS_URL;
-    if (redisUrl) {
+    const rawRedisUrl = process.env.REDIS_URL;
+    if (rawRedisUrl) {
       try {
+        const redisUrl =
+          rawRedisUrl.includes('upstash.io') && rawRedisUrl.startsWith('redis://')
+            ? rawRedisUrl.replace('redis://', 'rediss://')
+            : rawRedisUrl;
         const tempRedis = new Redis(redisUrl, {
-          connectTimeout: 1000,
+          connectTimeout: 2000,
           maxRetriesPerRequest: 0,
           lazyConnect: true,
+          tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
         });
         await tempRedis.connect();
         const pingRes = await tempRedis.ping();
