@@ -127,6 +127,13 @@ export const MarkdownContent: React.FC<MarkdownContentProps> = ({
                 </button>
               );
             }
+            // Explicit XSS URI defense: block javascript:/data:/vbscript: and protocol-relative // links
+            const isSafeHref =
+              typeof href === 'string' &&
+              (/^(https?:\/\/|mailto:)/i.test(href) || (href.startsWith('/') && !href.startsWith('//')));
+            if (!isSafeHref) {
+              return <span className="text-slate-600 underline decoration-dotted">{children}</span>;
+            }
             return (
               <a
                 href={href}

@@ -138,13 +138,18 @@ export class ConversationsService {
     conversationId: string,
     limit: number = 6,
   ): Promise<{ role: string; content: string }[]> {
+    const safeLimit = Math.min(Math.max(limit || 6, 1), 20);
     const records = await this.prisma.client.chatMessageRecord.findMany({
       where: {
         conversationId,
-        conversation: { organizationId: tenant.organizationId },
+        conversation: {
+          organizationId: tenant.organizationId,
+          // Prevent cross-user conversation history leakage (IDOR)
+          ...(tenant.userRole !== 'ADMIN' ? { userId: tenant.userId } : {}),
+        },
       },
       orderBy: { createdAt: 'desc' },
-      take: limit,
+      take: safeLimit,
       select: { role: true, content: true },
     });
 
@@ -163,10 +168,15 @@ export class ConversationsService {
 
     if (convId) {
       const existing = await this.prisma.client.conversation.findFirst({
-        where: { id: convId, organizationId: tenant.organizationId },
+        where: {
+          id: convId,
+          organizationId: tenant.organizationId,
+          // Prevent cross-user conversation thread hijacking / message injection (IDOR)
+          ...(tenant.userRole !== 'ADMIN' ? { userId: tenant.userId } : {}),
+        },
       });
       if (!existing) {
-        convId = undefined; // Create fresh if ID not found
+        convId = undefined; // Isolate into a new user-owned conversation if not owned
       }
     }
 

@@ -50,6 +50,7 @@ describe('HTTP Integration & ValidationPipe Contract Suite (Supertest)', () => {
       queryLog: {
         create: vi.fn().mockResolvedValue({ id: 'log-int-1' }),
         findFirst: vi.fn().mockResolvedValue({ id: 'gap-1', organizationId: 'org-int-01', query: 'test' }),
+        findMany: vi.fn().mockResolvedValue([]),
         update: vi.fn().mockResolvedValue({ id: 'gap-1' }),
       },
       supportTicket: {
@@ -271,6 +272,67 @@ describe('HTTP Integration & ValidationPipe Contract Suite (Supertest)', () => {
         process.env.NODE_ENV = origEnv;
         if (origSecret !== undefined) process.env.SLACK_SIGNING_SECRET = origSecret;
       }
+    });
+  });
+
+  describe('5. Round-2 Red-Team HTTP Controls (Stored XSS sourceUrl & Query Limit DoS Clamping)', () => {
+    it('rejects javascript: and data: sourceUrl schemes on POST /api/documents with HTTP 400', async () => {
+      await request(app.getHttpServer())
+        .post('/api/documents')
+        .set('Authorization', `Bearer ${demoToken}`)
+        .send({
+          title: 'Malicious XSS Doc',
+          source: DocumentSource.NOTION,
+          content: 'Harmless body content',
+          sourceUrl: 'javascript:alert(document.cookie)',
+        })
+        .expect(400);
+
+      await request(app.getHttpServer())
+        .post('/api/documents')
+        .set('Authorization', `Bearer ${demoToken}`)
+        .send({
+          title: 'Data URI XSS Doc',
+          source: DocumentSource.NOTION,
+          content: 'Harmless body content',
+          sourceUrl: 'data:text/html,<script>alert(1)</script>',
+        })
+        .expect(400);
+    });
+
+    it('accepts valid https:// sourceUrl on POST /api/documents with HTTP 201', async () => {
+      await request(app.getHttpServer())
+        .post('/api/documents')
+        .set('Authorization', `Bearer ${demoToken}`)
+        .send({
+          title: 'Valid Handbook Doc',
+          source: DocumentSource.NOTION,
+          content: 'Company onboarding guide content.',
+          sourceUrl: 'https://docs.company.internal/handbook',
+        })
+        .expect(201);
+    });
+
+    it('clamps extreme and non-numeric limit params on GET /api/feedback/analytics/logs', async () => {
+      mockPrisma.client.queryLog.findMany.mockClear();
+
+      await request(app.getHttpServer())
+        .get('/api/feedback/analytics/logs?limit=99999999')
+        .set('Authorization', `Bearer ${demoToken}`)
+        .expect(200);
+
+      expect(mockPrisma.client.queryLog.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({ take: 100 }),
+      );
+
+      await request(app.getHttpServer())
+        .get('/api/feedback/analytics/logs?limit=notanumber')
+        .set('Authorization', `Bearer ${demoToken}`)
+        .expect(200);
+
+      expect(mockPrisma.client.queryLog.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({ take: 20 }),
+      );
     });
   });
 });

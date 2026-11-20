@@ -40,12 +40,24 @@ export class AuthService {
     return this.ephemeralSecret;
   }
 
+  private isDemoAuthAllowed(): boolean {
+    if (process.env.DEMO_AUTH_ENABLED === 'false') {
+      return false;
+    }
+    // Fail-safe: when a real live Clerk production key is configured, require explicit opt-in
+    const hasLiveClerkKey = Boolean(process.env.CLERK_SECRET_KEY?.startsWith('sk_live_'));
+    if (hasLiveClerkKey && process.env.DEMO_AUTH_ENABLED !== 'true') {
+      return false;
+    }
+    return true;
+  }
+
   /**
    * Issues a server-signed HMAC-SHA256 demo session Bearer token for instant
    * frictionless portfolio access without exposing unverified x-mock-* headers.
    */
   issueDemoSessionToken(): DemoSessionResponse {
-    if (process.env.DEMO_AUTH_ENABLED === 'false') {
+    if (!this.isDemoAuthAllowed()) {
       throw new ForbiddenException('Demo session authentication is disabled in this environment');
     }
 
@@ -85,7 +97,7 @@ export class AuthService {
    * Cryptographically verifies a server-issued demo Bearer token using timing-safe HMAC comparison.
    */
   verifyDemoSessionToken(token: string): DemoSessionPayload | null {
-    if (process.env.DEMO_AUTH_ENABLED === 'false') {
+    if (!this.isDemoAuthAllowed()) {
       return null;
     }
     if (!token || !token.startsWith(this.DEMO_TOKEN_PREFIX)) {

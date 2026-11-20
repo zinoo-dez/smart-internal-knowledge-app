@@ -29,4 +29,21 @@ describe('MarkdownContent UI Component', () => {
     expect(onCitationClick).toHaveBeenNthCalledWith(1, 0);
     expect(onCitationClick).toHaveBeenNthCalledWith(2, 1);
   });
+
+  it('neutralizes unsafe javascript:, data:, and protocol-relative markdown links while preserving https links', () => {
+    const { container } = render(
+      <MarkdownContent
+        content={
+          'Try [JS XSS](javascript:alert(1)), [Data XSS](data:text/html,xss), [Proto](//evil.example/x), and [Safe Docs](https://docs.company.internal/leave).'
+        }
+      />,
+    );
+
+    const anchors = Array.from(container.querySelectorAll('a'));
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0].getAttribute('href')).toBe('https://docs.company.internal/leave');
+    expect(anchors[0].getAttribute('rel')).toContain('noopener');
+    expect(container.innerHTML).not.toContain('javascript:');
+    expect(container.innerHTML).not.toContain('data:text/html');
+  });
 });

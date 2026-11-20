@@ -160,8 +160,19 @@ export class DocumentsService {
   }
 
   async listDocuments(tenant: TenantContext): Promise<DocumentSummary[]> {
+    const isAdmin = tenant.userRole === UserRole.ADMIN;
+    const userDept = tenant.department || Department.ALL;
+
     const docs = await this.prisma.client.document.findMany({
-      where: { organizationId: tenant.organizationId },
+      where: {
+        organizationId: tenant.organizationId,
+        // Enforce Department ACL on document listing for non-admin members
+        ...(isAdmin
+          ? {}
+          : {
+              OR: [{ department: Department.ALL as any }, { department: userDept as any }],
+            }),
+      },
       include: {
         _count: {
           select: { chunks: true },
@@ -208,6 +219,17 @@ export class DocumentsService {
     // Strict IDOR protection: User cannot access documents outside their tenant organization
     if (doc.organizationId !== tenant.organizationId) {
       throw new ForbiddenException('Access denied to documents outside your organization');
+    }
+
+    // Department ACL enforcement: non-admin users cannot access restricted department documents
+    const docDept = (doc.department as unknown as Department) || Department.ALL;
+    const userDept = tenant.department || Department.ALL;
+    if (
+      tenant.userRole !== UserRole.ADMIN &&
+      docDept !== Department.ALL &&
+      docDept !== userDept
+    ) {
+      throw new ForbiddenException('Access denied: document restricted to another department');
     }
 
     return {

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { BadRequestException, ExecutionContext, ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { UserRole, TenantContext } from '@knowledge/shared';
+import { Department, UserRole, TenantContext } from '@knowledge/shared';
 import { ClerkAuthGuard } from './clerk-auth.guard';
 import { RolesGuard } from './roles.guard';
 import { AuthService } from '../auth.service';
@@ -9,6 +9,7 @@ import { DataSanitizerService } from '../../documents/services/data-sanitizer.se
 import { AuditLogService } from '../../audit/audit-log.service';
 import { SlackBotService } from '../../documents/connectors/slack-bot.service';
 import { RagAgentService } from '../../chat/rag-agent.service';
+import { ConversationsService } from '../../chat/conversations.service';
 import { McpService } from '../../mcp/services/mcp.service';
 import { DocumentsService } from '../../documents/documents.service';
 
@@ -368,6 +369,191 @@ describe('Red-Team Security & Exploit Defense Suite (Hack & Fix Verification)', 
         process.env.NODE_ENV = origEnv;
         if (origSecret !== undefined) process.env.SLACK_SIGNING_SECRET = origSecret;
       }
+    });
+  });
+
+  describe('10. Round-2 Red-Team Security Audit (Conversation IDOR, Dept ACL, Live-Clerk Demo Guard, MCP Tenant Isolation)', () => {
+    it('EXPLOIT: Member B attempts to read or hijack Member A conversation thread via getRecentMessages & saveTurn', async () => {
+      const mockPrisma: any = {
+        client: {
+          chatMessageRecord: {
+            findMany: vi.fn().mockResolvedValue([]),
+            createMany: vi.fn().mockResolvedValue({ count: 2 }),
+          },
+          conversation: {
+            findFirst: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue({ id: 'conv-isolated-bob' }),
+            update: vi.fn(),
+          },
+        },
+      };
+      const conversationsService = new ConversationsService(mockPrisma);
+      const memberB: TenantContext = {
+        organizationId: 'org-enterprise',
+        userId: 'user-bob',
+        userRole: UserRole.MEMBER,
+        userEmail: 'bob@enterprise.com',
+        department: Department.ENGINEERING,
+      };
+
+      // Attempt to leak Alice's messages and request excessive history limit (999)
+      await conversationsService.getRecentMessages(memberB, 'conv-alice-private', 999);
+      expect(mockPrisma.client.chatMessageRecord.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 20, // Clamped to max 20
+          where: expect.objectContaining({
+            conversationId: 'conv-alice-private',
+            conversation: {
+              organizationId: 'org-enterprise',
+              userId: 'user-bob', // Mandatory owner filter for non-ADMIN
+            },
+          }),
+        }),
+      );
+
+      // Attempt to inject messages into Alice's private thread
+      const savedConvId = await conversationsService.saveTurn(
+        memberB,
+        'conv-alice-private',
+        'Poisoned message injection',
+        'Assistant response',
+      );
+      expect(mockPrisma.client.conversation.findFirst).toHaveBeenCalledWith({
+        where: {
+          id: 'conv-alice-private',
+          organizationId: 'org-enterprise',
+          userId: 'user-bob',
+        },
+      });
+      // Must NOT update Alice's thread; must isolate into a fresh Bob-owned thread
+      expect(mockPrisma.client.conversation.update).not.toHaveBeenCalled();
+      expect(savedConvId).toBe('conv-isolated-bob');
+    });
+
+    it('EXPLOIT: Engineering Member attempts to read Executive-restricted document via getDocument or listDocuments', async () => {
+      const mockPrisma: any = {
+        client: {
+          document: {
+            findUnique: vi.fn().mockResolvedValue({
+              id: 'doc-exec-payroll',
+              organizationId: 'org-enterprise',
+              title: 'Q4 Executive Compensation',
+              source: 'FILE_UPLOAD',
+              department: Department.EXECUTIVE,
+              sourceUrl: 'https://docs.enterprise.com/exec-comp',
+              status: 'INDEXED',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              _count: { chunks: 4 },
+            }),
+            findMany: vi.fn().mockResolvedValue([]),
+          },
+        },
+      };
+      const documentsService = new DocumentsService(mockPrisma, {} as any, new DataSanitizerService());
+
+      const engMember: TenantContext = {
+        organizationId: 'org-enterprise',
+        userId: 'user-eng-1',
+        userRole: UserRole.MEMBER,
+        userEmail: 'eng@enterprise.com',
+        department: Department.ENGINEERING,
+      };
+      const orgAdmin: TenantContext = {
+        organizationId: 'org-enterprise',
+        userId: 'user-admin-1',
+        userRole: UserRole.ADMIN,
+        userEmail: 'admin@enterprise.com',
+        department: Department.ALL,
+      };
+
+      // Non-admin from ENGINEERING must be blocked from EXECUTIVE document
+      await expect(documentsService.getDocument(engMember, 'doc-exec-payroll')).rejects.toThrow(
+        ForbiddenException,
+      );
+
+      // Admin in the same org is authorized
+      const doc = await documentsService.getDocument(orgAdmin, 'doc-exec-payroll');
+      expect(doc.id).toBe('doc-exec-payroll');
+
+      // Listing documents for ENGINEERING member must enforce department OR filter
+      await documentsService.listDocuments(engMember);
+      expect(mockPrisma.client.document.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            organizationId: 'org-enterprise',
+            OR: [{ department: Department.ALL }, { department: Department.ENGINEERING }],
+          },
+        }),
+      );
+    });
+
+    it('EXPLOIT: Live Clerk production key blocks demo session issuance & verification unless explicitly opted in', () => {
+      const origClerk = process.env.CLERK_SECRET_KEY;
+      const origDemo = process.env.DEMO_AUTH_ENABLED;
+
+      try {
+        delete process.env.CLERK_SECRET_KEY;
+        delete process.env.DEMO_AUTH_ENABLED;
+        const auth = new AuthService({} as any);
+        const preLiveToken = auth.issueDemoSessionToken().token;
+
+        // Simulate production live Clerk configuration without explicit DEMO_AUTH_ENABLED=true
+        process.env.CLERK_SECRET_KEY = 'sk_live_enterprise_production_key';
+        delete process.env.DEMO_AUTH_ENABLED;
+
+        expect(() => auth.issueDemoSessionToken()).toThrow(ForbiddenException);
+        expect(auth.verifyDemoSessionToken(preLiveToken)).toBeNull();
+
+        // Explicit opt-in re-enables demo sessions
+        process.env.DEMO_AUTH_ENABLED = 'true';
+        const issued = auth.issueDemoSessionToken();
+        expect(auth.verifyDemoSessionToken(issued.token)).not.toBeNull();
+      } finally {
+        if (origClerk !== undefined) process.env.CLERK_SECRET_KEY = origClerk;
+        else delete process.env.CLERK_SECRET_KEY;
+        if (origDemo !== undefined) process.env.DEMO_AUTH_ENABLED = origDemo;
+        else delete process.env.DEMO_AUTH_ENABLED;
+      }
+    });
+
+    it('EXPLOIT: Tenant A toggling shared MCP tool does not mutate Tenant B view (in-memory fallback isolation)', async () => {
+      const mcpService = new McpService({} as any);
+      const tenantA: TenantContext = {
+        organizationId: 'org-tenant-a',
+        userId: 'admin-a',
+        userRole: UserRole.ADMIN,
+        userEmail: 'admin@a.com',
+      };
+      const tenantB: TenantContext = {
+        organizationId: 'org-tenant-b',
+        userId: 'admin-b',
+        userRole: UserRole.ADMIN,
+        userEmail: 'admin@b.com',
+      };
+
+      await mcpService.toggleTool(tenantA, 'mcp-neon-postgres', 'neon-tool-run-sql', {
+        isEnabled: false,
+      });
+
+      const serverA = await mcpService.findServer(tenantA, 'mcp-neon-postgres');
+      const serverB = await mcpService.findServer(tenantB, 'mcp-neon-postgres');
+
+      expect(serverA.tools.find((t) => t.id === 'neon-tool-run-sql')?.isEnabled).toBe(false);
+      expect(serverB.tools.find((t) => t.id === 'neon-tool-run-sql')?.isEnabled).toBe(true);
+
+      const listA = await mcpService.listServers(tenantA);
+      const listB = await mcpService.listServers(tenantB);
+      expect(
+        listA
+          .find((s) => s.id === 'mcp-neon-postgres')
+          ?.tools.find((t) => t.id === 'neon-tool-run-sql')?.isEnabled,
+      ).toBe(false);
+      expect(
+        listB
+          .find((s) => s.id === 'mcp-neon-postgres')
+          ?.tools.find((t) => t.id === 'neon-tool-run-sql')?.isEnabled,
+      ).toBe(true);
     });
   });
 });

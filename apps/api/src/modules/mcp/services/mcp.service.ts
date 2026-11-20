@@ -203,12 +203,19 @@ export class McpService implements OnModuleInit {
       this.logger.debug(`Prisma mcpServer query failed, serving from memory store: ${(err as Error).message}`);
     }
 
-    // Fallback: Return deep-cloned tenant-scoped in-memory servers (prevents cross-tenant mutation)
-    return Array.from(this.memoryServers.values())
-      .filter(
-        (s) => s.organizationId === tenant.organizationId || s.organizationId === 'shared-default',
-      )
-      .map((s) => JSON.parse(JSON.stringify(s)));
+    // Fallback: Return deep-cloned tenant-scoped in-memory servers (prefer tenant overrides over shared-default)
+    const resolvedById = new Map<string, McpServerSummary>();
+    for (const s of this.memoryServers.values()) {
+      if (s.organizationId === 'shared-default' && !resolvedById.has(s.id)) {
+        resolvedById.set(s.id, JSON.parse(JSON.stringify(s)));
+      }
+    }
+    for (const s of this.memoryServers.values()) {
+      if (s.organizationId === tenant.organizationId) {
+        resolvedById.set(s.id, JSON.parse(JSON.stringify(s)));
+      }
+    }
+    return Array.from(resolvedById.values());
   }
 
   /**
@@ -225,11 +232,13 @@ export class McpService implements OnModuleInit {
       this.logger.debug(`Prisma findServer failed: ${(err as Error).message}`);
     }
 
-    const memory = this.memoryServers.get(serverId);
+    const memory =
+      this.memoryServers.get(`${tenant.organizationId}:${serverId}`) ||
+      this.memoryServers.get(serverId);
     if (!memory || (memory.organizationId !== tenant.organizationId && memory.organizationId !== 'shared-default')) {
       throw new NotFoundException(`MCP Server #${serverId} not found.`);
     }
-    return memory;
+    return JSON.parse(JSON.stringify(memory));
   }
 
   /**

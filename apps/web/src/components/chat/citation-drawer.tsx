@@ -71,23 +71,37 @@ export function CitationDrawer({ citation, initialSearchTerm, onClose }: Citatio
     }
   };
 
+  const isSafeExternalUrl = (rawUrl?: string): boolean => {
+    if (!rawUrl) return false;
+    try {
+      const parsed = new URL(rawUrl);
+      return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+    } catch {
+      return false;
+    }
+  };
+
   const renderHighlightedSnippet = (text: string, query: string) => {
     if (!text) return null;
-    const terms = (query || '')
+    // Cap term length & count to prevent regex backtracking DoS on massive highlight queries
+    const rawTerms = (query || '')
+      .slice(0, 120)
       .trim()
       .split(/\s+/)
       .filter((w) => w.length > 2)
-      .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      .slice(0, 12);
 
-    if (terms.length === 0) return <span>{text}</span>;
+    if (rawTerms.length === 0) return <span>{text}</span>;
 
-    const regex = new RegExp(`(${terms.join('|')})`, 'gi');
+    const termSet = new Set(rawTerms.map((w) => w.toLowerCase()));
+    const escapedTerms = rawTerms.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const regex = new RegExp(`(${escapedTerms.join('|')})`, 'gi');
     const parts = text.split(regex);
 
     return (
       <span>
         {parts.map((part, i) =>
-          regex.test(part) ? (
+          termSet.has(part.toLowerCase()) ? (
             <mark
               key={i}
               className="bg-amber-100 text-amber-900 px-1 py-0.5 rounded font-semibold border-b border-amber-300"
@@ -206,11 +220,11 @@ export function CitationDrawer({ citation, initialSearchTerm, onClose }: Citatio
               </div>
             </div>
 
-            {citation.sourceUrl && (
+            {citation.sourceUrl && isSafeExternalUrl(citation.sourceUrl) && (
               <a
                 href={citation.sourceUrl}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 text-xs text-blue-600 font-semibold hover:underline pt-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 rounded"
               >
                 <span>Open original document</span>
