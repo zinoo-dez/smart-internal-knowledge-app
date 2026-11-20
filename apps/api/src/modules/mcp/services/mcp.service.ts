@@ -80,8 +80,13 @@ export class McpService {
       const host = parsed.hostname.toLowerCase();
       const isProduction = process.env.NODE_ENV === 'production';
 
-      // Disallow AWS/GCP/Azure instance metadata in all environments
-      if (host === '169.254.169.254' || host === 'metadata.google.internal') {
+      // Disallow all cloud link-local metadata (169.254.0.0/16, AWS/GCP/Azure) in all environments
+      if (
+        host.startsWith('169.254.') ||
+        host === 'metadata.google.internal' ||
+        host === 'instance-data' ||
+        host.endsWith('.internal')
+      ) {
         throw new ForbiddenException('Access to cloud instance metadata service is prohibited.');
       }
 
@@ -89,11 +94,18 @@ export class McpService {
       if (isProduction) {
         if (
           host === 'localhost' ||
-          host === '127.0.0.1' ||
+          host.startsWith('127.') ||
+          host === '0.0.0.0' ||
           host === '::1' ||
+          host === '::' ||
+          host === '[::]' ||
+          host === '0' ||
           host.startsWith('10.') ||
           host.startsWith('192.168.') ||
-          /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)
+          /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host) ||
+          host.startsWith('fe80:') ||
+          host.startsWith('fc00:') ||
+          host.startsWith('fd00:')
         ) {
           throw new ForbiddenException(
             `Access to internal or private IP address (${host}) is blocked by SSRF policy.`,
@@ -242,6 +254,14 @@ export class McpService {
     await this.findServer(tenant, serverId);
 
     try {
+      // IDOR defense: strictly verify tool belongs to this specific server
+      const existing = await (this.prisma.client as any).mcpTool.findFirst({
+        where: { id: toolId, serverId },
+      });
+      if (!existing) {
+        throw new NotFoundException(`Tool #${toolId} not found on server #${serverId}.`);
+      }
+
       const updated = await (this.prisma.client as any).mcpTool.update({
         where: { id: toolId },
         data: updates,
@@ -256,7 +276,9 @@ export class McpService {
         requireApproval: updated.requireApproval,
         createdAt: updated.createdAt.toISOString(),
       };
-    } catch {
+    } catch (err: any) {
+      if (err instanceof NotFoundException) throw err;
+
       // Memory fallback update
       const server = this.memoryServers.get(serverId);
       if (server) {
@@ -267,7 +289,7 @@ export class McpService {
           return tool;
         }
       }
-      throw new NotFoundException(`Tool #${toolId} not found.`);
+      throw new NotFoundException(`Tool #${toolId} not found on server #${serverId}.`);
     }
   }
 

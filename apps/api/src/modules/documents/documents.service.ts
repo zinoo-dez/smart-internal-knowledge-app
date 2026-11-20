@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -41,6 +42,39 @@ export class DocumentsService {
     title?: string,
     department: Department = Department.ALL,
   ): Promise<IngestDocumentResponse> {
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
+
+    const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024; // 15MB limit
+    if (file.size && file.size > MAX_FILE_SIZE_BYTES) {
+      throw new BadRequestException(
+        `File size (${(file.size / (1024 * 1024)).toFixed(1)}MB) exceeds maximum allowed limit of 15MB.`,
+      );
+    }
+
+    const filename = (file.originalname || '').toLowerCase();
+
+    // Explicitly reject known executable & script extensions regardless of MIME spoofing
+    const dangerousExtensions = [
+      '.exe',
+      '.sh',
+      '.bat',
+      '.cmd',
+      '.php',
+      '.phtml',
+      '.py',
+      '.rb',
+      '.pl',
+      '.bin',
+      '.elf',
+      '.dll',
+      '.msi',
+    ];
+    if (dangerousExtensions.some((ext) => filename.endsWith(ext))) {
+      throw new BadRequestException(`Executable or script file "${file.originalname}" is strictly prohibited.`);
+    }
+
     const docTitle = title || file.originalname || 'Uploaded Document';
     let content = '';
 

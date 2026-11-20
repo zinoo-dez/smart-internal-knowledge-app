@@ -42,6 +42,11 @@ export class SlackBotService {
   ): boolean {
     const secret = signingSecret || process.env.SLACK_SIGNING_SECRET;
     if (!secret) {
+      // In production, fail-closed: missing signing secret must reject requests
+      if (process.env.NODE_ENV === 'production') {
+        this.logger.error('Slack webhook rejected: SLACK_SIGNING_SECRET is not configured in production.');
+        return false;
+      }
       // In development / testing without secret, allow request
       return true;
     }
