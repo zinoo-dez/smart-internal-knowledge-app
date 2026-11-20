@@ -92,6 +92,10 @@ export class McpController {
   ): Promise<ExecuteMcpToolResponse> {
     // Enforce server ownership, tool enablement, and HITL requireApproval RBAC gate
     await this.mcpService.authorizeToolExecution(tenant, dto.serverId, dto.toolName);
-    return this.mcpClientManager.executeTool(dto);
+    const server = await this.mcpService.findServer(tenant, dto.serverId);
+    return this.mcpClientManager.executeTool(dto, {
+      transport: server.transport,
+      endpointUrl: server.endpointUrl,
+    });
   }
 }

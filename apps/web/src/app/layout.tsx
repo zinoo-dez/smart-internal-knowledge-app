@@ -1,7 +1,15 @@
 import type { Metadata, Viewport } from 'next';
+import { ClerkProvider } from '@clerk/nextjs';
 import './globals.css';
 import { AppShell } from '@/components/layout/app-shell';
+import { ClerkAuthBridge } from '@/components/auth/clerk-auth-bridge';
 import { LanguageProvider } from '@/context/language-context';
+
+const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+const isClerkEnabled =
+  Boolean(clerkPublishableKey) &&
+  !clerkPublishableKey?.includes('...') &&
+  (clerkPublishableKey?.startsWith('pk_live_') || clerkPublishableKey?.startsWith('pk_test_'));
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -31,7 +39,14 @@ export default function RootLayout({
           Skip to main content
         </a>
         <LanguageProvider>
-          <AppShell>{children}</AppShell>
+          {isClerkEnabled ? (
+            <ClerkProvider publishableKey={clerkPublishableKey}>
+              <ClerkAuthBridge />
+              <AppShell>{children}</AppShell>
+            </ClerkProvider>
+          ) : (
+            <AppShell>{children}</AppShell>
+          )}
         </LanguageProvider>
       </body>
     </html>

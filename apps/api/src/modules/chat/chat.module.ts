@@ -6,6 +6,8 @@ import { ConversationsService } from './conversations.service';
 import { ModelRouterService } from './services/model-router.service';
 import { PromptSecurityService } from './services/prompt-security.service';
 import { GroundingEvaluatorService } from './services/grounding-evaluator.service';
+import { QueryRewriterService } from './services/query-rewriter.service';
+import { McpToolLoopService } from './services/mcp-tool-loop.service';
 import { SearchModule } from '../search/search.module';
 import { AuthModule } from '../auth/auth.module';
 import { DocumentsModule } from '../documents/documents.module';
@@ -27,6 +29,8 @@ import { BillingModule } from '../billing/billing.module';
     ModelRouterService,
     PromptSecurityService,
     GroundingEvaluatorService,
+    QueryRewriterService,
+    McpToolLoopService,
     RagAgentService,
     AgentToolsService,
     ConversationsService,
@@ -35,6 +39,8 @@ import { BillingModule } from '../billing/billing.module';
     ModelRouterService,
     PromptSecurityService,
     GroundingEvaluatorService,
+    QueryRewriterService,
+    McpToolLoopService,
     RagAgentService,
     AgentToolsService,
     ConversationsService,

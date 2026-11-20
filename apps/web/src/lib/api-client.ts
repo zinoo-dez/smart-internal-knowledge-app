@@ -17,10 +17,13 @@ import {
   PaginatedAuditLogsResponse,
   QueryAuditLogsParams,
   SlackWebhookPayload,
+  TenantContext,
   TicketStatus,
   TenantUsageSummary,
   SubscriptionTier,
   CreateMcpServerRequest,
+  ExecuteMcpToolRequest,
+  ExecuteMcpToolResponse,
   McpServerSummary,
   McpStatus,
   McpToolSummary,
@@ -40,6 +43,33 @@ interface CachedDemoSession {
 
 let cachedSession: CachedDemoSession | null = null;
 let inflightSessionPromise: Promise<string | null> | null = null;
+let externalTokenProvider: (() => Promise<string | null>) | null = null;
+let offlineDemoMode = false;
+const offlineListeners = new Set<(offline: boolean) => void>();
+
+export function registerAuthTokenProvider(
+  provider: (() => Promise<string | null>) | null,
+): void {
+  externalTokenProvider = provider;
+}
+
+export function isOfflineDemoMode(): boolean {
+  return offlineDemoMode;
+}
+
+export function markOfflineDemoMode(offline = true): void {
+  if (offlineDemoMode === offline) return;
+  offlineDemoMode = offline;
+  offlineListeners.forEach((listener) => listener(offline));
+}
+
+export function subscribeOfflineMode(listener: (offline: boolean) => void): () => void {
+  offlineListeners.add(listener);
+  listener(offlineDemoMode);
+  return () => {
+    offlineListeners.delete(listener);
+  };
+}
 
 export function clearDemoSessionCache(): void {
   cachedSession = null;
@@ -136,11 +166,35 @@ export async function getAuthHeaders(includeJsonContentType = true): Promise<Rec
     headers['Content-Type'] = 'application/json';
   }
 
+  // 1. Prefer live Clerk JWT token when ClerkAuthBridge is mounted
+  if (externalTokenProvider) {
+    try {
+      const clerkToken = await externalTokenProvider();
+      if (clerkToken) {
+        headers['Authorization'] = `Bearer ${clerkToken}`;
+        return headers;
+      }
+    } catch {
+      // Fall through to demo session token if Clerk session is unavailable
+    }
+  }
+
+  // 2. Fall back to server-issued signed Portfolio Demo Bearer token
   const token = await fetchDemoSessionToken();
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
   return headers;
+}
+
+export async function fetchCurrentTenant(): Promise<TenantContext | null> {
+  try {
+    const res = await apiFetch('/api/auth/me', { method: 'GET' }, false);
+    if (!res.ok) return null;
+    return (await res.json()) as TenantContext;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -187,6 +241,7 @@ export async function fetchDocuments(): Promise<DocumentSummary[]> {
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     return await res.json();
   } catch (err) {
+    markOfflineDemoMode(true);
     console.warn('Backend unavailable, using initial demo seed:', err);
     return [
       {
@@ -426,6 +481,7 @@ export async function fetchConversations(): Promise<ConversationSummary[]> {
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     return await res.json();
   } catch (err) {
+    markOfflineDemoMode(true);
     console.warn('Backend conversations unavailable, using fallback list:', err);
     return [
       {
@@ -611,6 +667,7 @@ export async function fetchBillingUsage(): Promise<TenantUsageSummary> {
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     return await res.json();
   } catch (err) {
+    markOfflineDemoMode(true);
     console.warn('Backend billing unavailable, using initial demo metrics:', err);
     return {
       organizationId: 'mock-org-default',
@@ -656,6 +713,7 @@ export async function fetchMcpServers(): Promise<McpServerSummary[]> {
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     return await res.json();
   } catch (err) {
+    markOfflineDemoMode(true);
     console.warn('Backend MCP unavailable, using initial demo mock servers:', err);
     return [
       {
@@ -832,4 +890,28 @@ export async function deleteMcpServer(
   const res = await apiFetch(`/api/mcp/servers/${serverId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
   return await res.json();
+}
+
+export async function executeMcpTool(
+  dto: ExecuteMcpToolRequest,
+): Promise<ExecuteMcpToolResponse> {
+  const res = await apiFetch('/api/mcp/execute', {
+    method: 'POST',
+    body: JSON.stringify(dto),
+  });
+  if (!res.ok) {
+    let message = `Tool execution failed (HTTP ${res.status})`;
+    try {
+      const errBody = (await res.json()) as { message?: string | string[] };
+      if (Array.isArray(errBody.message)) {
+        message = errBody.message.join(', ');
+      } else if (typeof errBody.message === 'string') {
+        message = errBody.message;
+      }
+    } catch {
+      // Ignore non-JSON error responses
+    }
+    throw new Error(message);
+  }
+  return (await res.json()) as ExecuteMcpToolResponse;
 }

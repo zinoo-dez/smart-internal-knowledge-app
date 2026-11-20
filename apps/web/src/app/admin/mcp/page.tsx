@@ -8,9 +8,7 @@ import {
   Server,
   Zap,
   CheckCircle2,
-  AlertCircle,
   Trash2,
-  ExternalLink,
   ShieldCheck,
   ChevronDown,
   ChevronRight,
@@ -26,7 +24,6 @@ import {
 import {
   McpServerSummary,
   McpStatus,
-  McpToolSummary,
   McpTransport,
 } from '@knowledge/shared';
 import {

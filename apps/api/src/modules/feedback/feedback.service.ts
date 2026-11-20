@@ -8,7 +8,6 @@ import {
 import {
   AnalyticsSummaryResponse,
   AuditAction,
-  FeedbackType,
   KnowledgeGapItem,
   KnowledgeGapSummaryResponse,
   TenantContext,

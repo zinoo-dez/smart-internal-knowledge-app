@@ -5,7 +5,6 @@ import Link from 'next/link';
 import {
   BookOpen,
   ShieldCheck,
-  FileText,
   Cookie,
   Zap,
   Languages,
@@ -27,7 +26,7 @@ import { DOCS_DATA, AdvantageItem } from '@/data/docs-data';
 type DocTab = 'guide' | 'terms' | 'privacy' | 'cookies';
 
 export default function DocsPage() {
-  const { language, t, isMyanmar } = useLanguage();
+  const { language, t } = useLanguage();
   const [activeTab, setActiveTab] = useState<DocTab>('guide');
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
 

@@ -75,6 +75,7 @@ export interface ChatMessage {
   feedbackGiven?: 'UP' | 'DOWN';
   followUpQuestions?: string[];
   activeTool?: {
+    serverId?: string;
     name: string;
     serverName?: string;
     arguments?: Record<string, unknown>;

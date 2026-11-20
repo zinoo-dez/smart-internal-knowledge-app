@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ArgumentsHost, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
+import { ArgumentsHost, HttpStatus, NotFoundException } from '@nestjs/common';
 import { GlobalExceptionsFilter } from './http-exception.filter';
 
 describe('GlobalExceptionsFilter', () => {

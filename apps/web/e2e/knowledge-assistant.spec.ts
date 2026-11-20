@@ -55,6 +55,15 @@ test.describe('Smart Internal Knowledge Assistant - End-to-End User Journeys', (
     );
     expect(hasHorizontalOverflow).toBe(false);
 
+    // Submitting a query keeps the bottom omnibox docked at the bottom of the mobile viewport
+    const omniboxInput = page.locator('input[type="text"]').first();
+    await omniboxInput.fill('AWS credentials & security handbook');
+    await omniboxInput.press('Enter');
+    const omniboxBottom = await page
+      .locator('form[aria-label="Internal Knowledge Search"]')
+      .evaluate((el) => el.getBoundingClientRect().bottom);
+    expect(omniboxBottom).toBeGreaterThan(750);
+
     // Language toggle switches to Burmese cleanly
     const myBtn = page.getByRole('button', { name: /မြန်မာ|myanmar/i }).first();
     if ((await myBtn.count()) > 0) {

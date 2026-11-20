@@ -164,7 +164,7 @@ model QueryLog {
   query            String
   response         String
   modelProvider    String       @default("GEMINI")
-  modelName        String       @default("gemini-1.5-flash")
+  modelName        String       @default("gemini-2.5-flash")
   promptTokens     Int          @default(0)
   completionTokens Int          @default(0)
   totalTokens      Int          @default(0)

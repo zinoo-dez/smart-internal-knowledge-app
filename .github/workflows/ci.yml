@@ -26,7 +26,7 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm install
+        run: npm ci
 
       - name: Generate Prisma Client
         run: npm run db:generate --workspace=@knowledge/database
@@ -41,7 +41,7 @@ jobs:
         run: npx turbo run test
 
       - name: Production Dependency Security Audit
-        run: npm audit --omit=dev --audit-level=critical || true
+        run: npm audit --omit=dev --audit-level=critical
 
       - name: Turborepo Production Build
         run: npx turbo run build

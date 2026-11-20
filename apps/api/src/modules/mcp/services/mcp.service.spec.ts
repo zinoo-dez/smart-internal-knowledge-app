@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { McpStatus, McpTransport, TenantContext, UserRole } from '@knowledge/shared';
+import { McpTransport, TenantContext, UserRole } from '@knowledge/shared';
 import { McpService } from './mcp.service';
 import { McpClientManagerService } from './mcp-client-manager.service';
 
@@ -198,6 +198,30 @@ describe('McpService & McpClientManagerService', () => {
       expect(execResult.latencyMs).toBeGreaterThan(0);
       expect((execResult.result as any).status).toBe('SUCCESS');
       expect((execResult.result as any).rows.length).toBe(3);
+    });
+
+    it('should return success=false instead of simulated success for unreachable SSE endpoint in strict production', async () => {
+      const origEnv = process.env.NODE_ENV;
+      const origDemo = process.env.DEMO_AUTH_ENABLED;
+      process.env.NODE_ENV = 'production';
+      process.env.DEMO_AUTH_ENABLED = 'false';
+
+      try {
+        const result = await clientManager.testConnection({
+          transport: McpTransport.SSE,
+          endpointUrl: 'https://mcp.example.com/sse',
+        });
+        expect(result.success).toBe(false);
+        expect(result.tools).toEqual([]);
+        expect(result.errorMessage).toBeTruthy();
+      } finally {
+        process.env.NODE_ENV = origEnv;
+        if (origDemo === undefined) {
+          delete process.env.DEMO_AUTH_ENABLED;
+        } else {
+          process.env.DEMO_AUTH_ENABLED = origDemo;
+        }
+      }
     });
   });
 });

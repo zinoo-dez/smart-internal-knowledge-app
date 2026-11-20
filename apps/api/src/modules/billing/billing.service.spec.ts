@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ServiceUnavailableException } from '@nestjs/common';
 import { BillingService } from './billing.service';
 import { SubscriptionTier, TenantContext, UserRole } from '@knowledge/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -78,5 +79,24 @@ describe('BillingService', () => {
     expect(mockPrisma.client.queryLog.aggregate).toHaveBeenCalled();
     expect(usage.queryCount).toBe(42);
     expect(usage.tokenCount).toBe(84000);
+  });
+
+  it('should throw ServiceUnavailableException in strict production when DB usage query fails', async () => {
+    const origEnv = process.env.NODE_ENV;
+    const origDemo = process.env.DEMO_AUTH_ENABLED;
+    process.env.NODE_ENV = 'production';
+    process.env.DEMO_AUTH_ENABLED = 'false';
+
+    mockPrisma.client.queryLog.findMany.mockRejectedValueOnce(new Error('Connection refused'));
+    try {
+      await expect(service.getTenantUsage(tenant)).rejects.toThrow(ServiceUnavailableException);
+    } finally {
+      process.env.NODE_ENV = origEnv;
+      if (origDemo === undefined) {
+        delete process.env.DEMO_AUTH_ENABLED;
+      } else {
+        process.env.DEMO_AUTH_ENABLED = origDemo;
+      }
+    }
   });
 });

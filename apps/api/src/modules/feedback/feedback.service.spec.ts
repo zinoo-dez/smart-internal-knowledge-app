@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { FeedbackService } from './feedback.service';
 import { FeedbackType, TenantContext, UserRole } from '@knowledge/shared';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 describe('FeedbackService', () => {

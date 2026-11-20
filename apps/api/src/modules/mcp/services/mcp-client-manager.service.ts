@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import {
   ExecuteMcpToolRequest,
   ExecuteMcpToolResponse,
@@ -8,17 +10,100 @@ import {
 } from '@knowledge/shared';
 import { McpService } from './mcp.service';
 
+export interface McpRemoteExecutionContext {
+  transport: McpTransport;
+  endpointUrl?: string;
+  headers?: Record<string, string>;
+}
+
+const BUILTIN_DEMO_SERVER_IDS = new Set([
+  'mcp-neon-postgres',
+  'mcp-github-enterprise',
+  'mcp-jira-cloud',
+]);
+
+const FORBIDDEN_HEADERS = new Set([
+  'host',
+  'content-length',
+  'connection',
+  'transfer-encoding',
+  'keep-alive',
+  'upgrade',
+  'cookie',
+  'proxy-authorization',
+]);
+
 @Injectable()
 export class McpClientManagerService {
   private readonly logger = new Logger(McpClientManagerService.name);
 
   constructor(private readonly mcpService: McpService) {}
 
+  private sanitizeHeaders(headers?: Record<string, string>): Record<string, string> {
+    const sanitized: Record<string, string> = {};
+    for (const [k, v] of Object.entries(headers || {})) {
+      if (!FORBIDDEN_HEADERS.has(k.toLowerCase()) && typeof v === 'string') {
+        sanitized[k] = v;
+      }
+    }
+    return sanitized;
+  }
+
+  private createHardenedFetch(sanitizedHeaders: Record<string, string>) {
+    return (input: string | URL, init?: RequestInit): Promise<Response> => {
+      const mergedHeaders: Record<string, string> = { ...sanitizedHeaders };
+      if (init?.headers) {
+        if (init.headers instanceof Headers) {
+          init.headers.forEach((v, k) => {
+            if (!FORBIDDEN_HEADERS.has(k.toLowerCase())) {
+              mergedHeaders[k] = v;
+            }
+          });
+        } else if (Array.isArray(init.headers)) {
+          for (const [k, v] of init.headers) {
+            if (!FORBIDDEN_HEADERS.has(k.toLowerCase())) {
+              mergedHeaders[k] = v;
+            }
+          }
+        } else {
+          for (const [k, v] of Object.entries(init.headers)) {
+            if (!FORBIDDEN_HEADERS.has(k.toLowerCase()) && typeof v === 'string') {
+              mergedHeaders[k] = v;
+            }
+          }
+        }
+      }
+
+      return globalThis.fetch(input, {
+        ...init,
+        redirect: 'error',
+        headers: mergedHeaders,
+      });
+    };
+  }
+
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        promise,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   /**
-   * Test connection to a remote SSE or local Stdio MCP server and discover tools
+   * Test connection to a remote SSE or local Stdio MCP server and discover tools.
+   * Uses official @modelcontextprotocol/sdk SSEClientTransport for live remote endpoints.
    */
   async testConnection(req: TestMcpConnectionRequest): Promise<TestMcpConnectionResponse> {
     const startTime = Date.now();
+    const isStrictProduction =
+      process.env.NODE_ENV === 'production' && process.env.DEMO_AUTH_ENABLED !== 'true';
 
     try {
       if (req.transport === McpTransport.SSE) {
@@ -32,80 +117,51 @@ export class McpClientManagerService {
         }
 
         await this.mcpService.validateRemoteUrlWithDns(req.endpointUrl);
+        const sanitizedHeaders = this.sanitizeHeaders(req.headers);
 
-        // Attempt live HTTP/SSE ping with 5-second timeout & SSRF redirect protection
+        // 1. Attempt real MCP SDK SSE handshake & tool discovery
+        const client = new Client(
+          { name: 'smart-internal-knowledge-assistant', version: '1.0.0' },
+          { capabilities: {} },
+        );
+        const transport = new SSEClientTransport(new URL(req.endpointUrl), {
+          fetch: this.createHardenedFetch(sanitizedHeaders),
+          requestInit: { headers: sanitizedHeaders, redirect: 'error' },
+        });
+
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          await this.withTimeout(client.connect(transport), 5000, 'MCP SSE connect');
+          const listed = await this.withTimeout(client.listTools(), 5000, 'MCP listTools');
+          const latencyMs = Math.max(1, Date.now() - startTime);
+          const serverVersion = client.getServerVersion();
 
-          const forbiddenHeaders = new Set([
-            'host',
-            'content-length',
-            'connection',
-            'transfer-encoding',
-            'keep-alive',
-            'upgrade',
-            'cookie',
-            'proxy-authorization',
-          ]);
-          const sanitizedHeaders: Record<string, string> = {};
-          for (const [k, v] of Object.entries(req.headers || {})) {
-            if (!forbiddenHeaders.has(k.toLowerCase()) && typeof v === 'string') {
-              sanitizedHeaders[k] = v;
-            }
-          }
-
-          const response = await fetch(req.endpointUrl, {
-            method: 'GET',
-            redirect: 'error',
-            headers: {
-              Accept: 'text/event-stream, application/json',
-              ...sanitizedHeaders,
+          return {
+            success: true,
+            latencyMs,
+            serverInfo: {
+              name: serverVersion?.name || 'Remote MCP Server',
+              version: serverVersion?.version || '1.0.0',
             },
-            signal: controller.signal,
-          });
-
-          clearTimeout(timeoutId);
-          const latencyMs = Date.now() - startTime;
-
-          // If the endpoint is reachable or returns valid status
-          if (response.ok || response.status === 404 || response.status === 405) {
+            tools: (listed.tools || []).map((t) => ({
+              name: t.name,
+              description: t.description || `Remote MCP tool ${t.name}`,
+              inputSchema: (t.inputSchema as Record<string, unknown>) || { type: 'object' },
+            })),
+          };
+        } catch (sdkErr: unknown) {
+          const message = sdkErr instanceof Error ? sdkErr.message : String(sdkErr);
+          if (isStrictProduction) {
+            this.logger.warn(`MCP SSE connection failed in production: ${message}`);
             return {
-              success: true,
-              latencyMs,
-              serverInfo: {
-                name: 'Custom Remote MCP Server',
-                version: '1.0.0',
-              },
-              tools: [
-                {
-                  name: 'custom_query_data',
-                  description: 'Query remote dataset via custom MCP endpoint',
-                  inputSchema: {
-                    type: 'object',
-                    properties: {
-                      query: { type: 'string', description: 'Data query parameter' },
-                      limit: { type: 'number', description: 'Maximum rows' },
-                    },
-                    required: ['query'],
-                  },
-                },
-                {
-                  name: 'custom_fetch_record',
-                  description: 'Fetch individual record by identifier',
-                  inputSchema: {
-                    type: 'object',
-                    properties: {
-                      recordId: { type: 'string', description: 'Unique record ID' },
-                    },
-                    required: ['recordId'],
-                  },
-                },
-              ],
+              success: false,
+              latencyMs: Math.max(1, Date.now() - startTime),
+              tools: [],
+              errorMessage: `Unable to establish MCP SSE handshake: ${message}`,
             };
           }
-        } catch {
-          // If network is offline or dummy endpoint in dev, simulate successful handshake
+
+          // Graceful dev/demo fallback when external endpoint is offline
+          this.logger.debug(`MCP SDK handshake unavailable in dev/demo (${message}); using simulated discovery.`);
           const latencyMs = Math.max(12, Date.now() - startTime);
           return {
             success: true,
@@ -138,10 +194,25 @@ export class McpClientManagerService {
               },
             ],
           };
+        } finally {
+          try {
+            await client.close();
+          } catch {
+            // Ignore close errors on aborted transports
+          }
         }
       }
 
-      // Stdio command validation
+      // Stdio transport (requires local container process; reject in strict production unless sandboxed)
+      if (isStrictProduction) {
+        return {
+          success: false,
+          latencyMs: Math.max(1, Date.now() - startTime),
+          tools: [],
+          errorMessage: 'Local Stdio MCP transport is disabled in multi-tenant production. Use SSE transport.',
+        };
+      }
+
       const latencyMs = Math.max(15, Date.now() - startTime);
       return {
         success: true,
@@ -163,28 +234,80 @@ export class McpClientManagerService {
           },
         ],
       };
-    } catch (err: any) {
-      this.logger.error(`Connection test failed: ${err.message}`);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Connection test failed: ${message}`);
       return {
         success: false,
         latencyMs: Date.now() - startTime,
         tools: [],
-        errorMessage: err.message,
+        errorMessage: message,
       };
     }
   }
 
   /**
-   * Execute an MCP tool with timeout and error handling
+   * Execute an MCP tool via official @modelcontextprotocol/sdk SSE transport for custom servers,
+   * or built-in demo handlers for pre-seeded portfolio demo servers.
    */
-  async executeTool(req: ExecuteMcpToolRequest): Promise<ExecuteMcpToolResponse> {
+  async executeTool(
+    req: ExecuteMcpToolRequest,
+    remoteCtx?: McpRemoteExecutionContext,
+  ): Promise<ExecuteMcpToolResponse> {
     const startTime = Date.now();
     this.logger.log(`Executing MCP tool "${req.toolName}" on server "${req.serverId}"`);
 
-    // Resilient simulated responses for popular enterprise tool types
+    const isBuiltinDemo = BUILTIN_DEMO_SERVER_IDS.has(req.serverId);
+    const isStrictProduction =
+      process.env.NODE_ENV === 'production' && process.env.DEMO_AUTH_ENABLED !== 'true';
+
+    // 1. Live remote SSE MCP execution via official SDK for non-demo servers
+    if (!isBuiltinDemo && remoteCtx?.transport === McpTransport.SSE && remoteCtx.endpointUrl) {
+      await this.mcpService.validateRemoteUrlWithDns(remoteCtx.endpointUrl);
+      const sanitizedHeaders = this.sanitizeHeaders(remoteCtx.headers);
+      const client = new Client(
+        { name: 'smart-internal-knowledge-assistant', version: '1.0.0' },
+        { capabilities: {} },
+      );
+      const transport = new SSEClientTransport(new URL(remoteCtx.endpointUrl), {
+        fetch: this.createHardenedFetch(sanitizedHeaders),
+        requestInit: { headers: sanitizedHeaders, redirect: 'error' },
+      });
+
+      try {
+        await this.withTimeout(client.connect(transport), 5000, 'MCP SSE connect');
+        const toolResponse = await this.withTimeout(
+          client.callTool({ name: req.toolName, arguments: req.arguments }),
+          15000,
+          `MCP callTool(${req.toolName})`,
+        );
+        return {
+          toolName: req.toolName,
+          latencyMs: Math.max(1, Date.now() - startTime),
+          result: toolResponse,
+        };
+      } catch (sdkErr: unknown) {
+        const message = sdkErr instanceof Error ? sdkErr.message : String(sdkErr);
+        if (isStrictProduction) {
+          throw new Error(`Remote MCP tool "${req.toolName}" execution failed: ${message}`, {
+            cause: sdkErr,
+          });
+        }
+        this.logger.warn(
+          `Remote MCP SDK callTool failed in dev/demo (${message}); falling back to simulated handler.`,
+        );
+      } finally {
+        try {
+          await client.close();
+        } catch {
+          // Ignore close errors
+        }
+      }
+    }
+
+    // 2. Built-in demo & offline dev simulation handlers
     const toolLower = req.toolName.toLowerCase();
 
-    // 1. PostgreSQL / Database queries
     if (toolLower.includes('sql') || toolLower.includes('postgres') || toolLower.includes('query')) {
       const query = (req.arguments.query as string) || 'SELECT 1;';
       const latencyMs = Date.now() - startTime + 24;
@@ -204,7 +327,6 @@ export class McpClientManagerService {
       };
     }
 
-    // 2. GitHub tools
     if (toolLower.includes('github') || toolLower.includes('issue') || toolLower.includes('pr')) {
       const latencyMs = Date.now() - startTime + 18;
       return {
@@ -222,7 +344,6 @@ export class McpClientManagerService {
       };
     }
 
-    // 3. Jira / Ticket tools
     if (toolLower.includes('jira') || toolLower.includes('ticket')) {
       const ticketKey = (req.arguments.ticketKey as string) || 'OPS-2094';
       const latencyMs = Date.now() - startTime + 35;
@@ -240,7 +361,6 @@ export class McpClientManagerService {
       };
     }
 
-    // Default generic tool execution
     const latencyMs = Date.now() - startTime + 20;
     return {
       toolName: req.toolName,

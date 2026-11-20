@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { HybridSearchService } from './hybrid-search.service';
-import { DocumentSource, TenantContext, UserRole } from '@knowledge/shared';
+import { TenantContext, UserRole } from '@knowledge/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmbeddingService } from '../documents/services/embedding.service';
 

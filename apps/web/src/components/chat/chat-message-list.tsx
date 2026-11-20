@@ -54,7 +54,7 @@ export function ChatMessageList({
       tabIndex={0}
       role="region"
       aria-label="Conversation message stream"
-      className="flex-1 overflow-y-auto px-4 py-6 space-y-6 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-300"
+      className="flex-1 min-h-0 overflow-y-auto px-4 py-6 space-y-6 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-300"
     >
       {messages.map((msg) => (
         <div

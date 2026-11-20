@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsObject, IsOptional, IsString, IsUrl } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsObject, IsOptional, IsString } from 'class-validator';
 import { CreateMcpServerRequest, McpTransport } from '@knowledge/shared';
 
 export class CreateMcpServerDto implements CreateMcpServerRequest {

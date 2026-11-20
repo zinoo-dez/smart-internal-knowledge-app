@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import {
   SubscriptionTier,
   SUBSCRIPTION_TIERS,
@@ -98,6 +98,14 @@ export class BillingService {
         documentCount = docCount;
       }
     } catch (err) {
+      const isStrictProduction =
+        process.env.NODE_ENV === 'production' && process.env.DEMO_AUTH_ENABLED !== 'true';
+      if (isStrictProduction) {
+        this.logger.error(`Database unavailable while checking tenant usage: ${(err as Error).message}`);
+        throw new ServiceUnavailableException(
+          'Unable to verify workspace quota against database. Please retry shortly.',
+        );
+      }
       this.logger.warn(`Could not fetch exact usage from database: ${err}. Using baseline metrics.`);
       queryCount = 12;
       tokenCount = 14500;

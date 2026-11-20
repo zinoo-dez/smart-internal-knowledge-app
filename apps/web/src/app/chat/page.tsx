@@ -7,10 +7,12 @@ import {
   API_BASE_URL,
   createSupportTicket,
   deleteConversation,
+  executeMcpTool,
   fetchConversationDetail,
   fetchConversations,
   getAuthHeaders,
   isMixedContentBlocked,
+  markOfflineDemoMode,
   submitFeedback,
 } from '@/lib/api-client';
 import { createSseLineParser } from '@/lib/sse-parser';
@@ -164,6 +166,7 @@ export default function ChatPage() {
             ? {
                 ...m,
                 activeTool: {
+                  serverId: data.serverId ? String(data.serverId) : undefined,
                   name: String(data.toolName || ''),
                   arguments: data.arguments as Record<string, unknown> | undefined,
                   status: 'approval_required',
@@ -296,6 +299,7 @@ export default function ChatPage() {
         throw new Error('Empty stream response received from backend.');
       }
     } catch (err) {
+      markOfflineDemoMode(true);
       console.warn('Backend stream error, using client-side simulated answer:', err);
       const demoAnswer = `Based on **Company Remote Work & VPN Setup Handbook** [1], all employees connecting to internal database clusters must install the WireGuard VPN client and authenticate using single sign-on (SSO).\n\nIf you encounter connection drops, verify your IP is whitelisted on the internal portal.`;
       const demoCitations: DocumentCitation[] = [
@@ -394,7 +398,7 @@ export default function ChatPage() {
   const isWelcomeState = messages.length === 0;
 
   return (
-    <div className="flex h-full w-full md:gap-4 relative overflow-hidden md:p-3 lg:p-4">
+    <div className="flex-1 min-h-0 flex w-full md:gap-4 relative overflow-hidden md:p-3 lg:p-4">
       <ChatSidebar
         conversations={conversations}
         activeConversationId={activeConversationId}
@@ -409,7 +413,7 @@ export default function ChatPage() {
 
       <main
         aria-label="Assistant workspace"
-        className="flex-1 flex flex-col min-w-0 bg-white md:rounded-xl md:border md:border-slate-200/80 md:shadow-xs relative overflow-hidden h-full"
+        className="flex-1 min-h-0 flex flex-col min-w-0 bg-white md:rounded-xl md:border md:border-slate-200/80 md:shadow-xs relative overflow-hidden"
       >
         <ChatHeader
           selectedModel={selectedModel}
@@ -531,28 +535,67 @@ export default function ChatPage() {
               onToggleToolAccordion={(msgId) =>
                 setOpenAccordions((prev) => ({ ...prev, [msgId]: !prev[msgId] }))
               }
-              onApproveAction={(msgId) =>
+              onApproveAction={async (msgId) => {
+                const targetMsg = messages.find((m) => m.id === msgId);
+                if (!targetMsg?.activeTool) return;
+                const { serverId, name, arguments: toolArgs } = targetMsg.activeTool;
+
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === msgId && m.activeTool
-                      ? {
-                          ...m,
-                          activeTool: {
-                            ...m.activeTool,
-                            status: 'completed',
-                            result: {
-                              status: 'APPROVED_AND_EXECUTED',
-                              timestamp: new Date().toISOString(),
-                            },
-                          },
-                          content:
-                            m.content +
-                            '\n\n**Action confirmed:** Tool successfully executed with user approval.',
-                        }
+                      ? { ...m, activeTool: { ...m.activeTool, status: 'running' } }
                       : m,
                   ),
-                )
-              }
+                );
+
+                try {
+                  if (!serverId) {
+                    throw new Error('Missing MCP server identifier for tool execution.');
+                  }
+                  const execRes = await executeMcpTool({
+                    serverId,
+                    toolName: name,
+                    arguments: toolArgs || {},
+                  });
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === msgId && m.activeTool
+                        ? {
+                            ...m,
+                            activeTool: {
+                              ...m.activeTool,
+                              status: 'completed',
+                              latencyMs: execRes.latencyMs,
+                              result: execRes.result,
+                            },
+                            content:
+                              (m.content ? `${m.content}\n\n` : '') +
+                              `**Action confirmed:** Executed \`${execRes.toolName}\` (${execRes.latencyMs}ms).`,
+                          }
+                        : m,
+                    ),
+                  );
+                } catch (err: unknown) {
+                  const errMsg = err instanceof Error ? err.message : 'Tool execution failed.';
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === msgId && m.activeTool
+                        ? {
+                            ...m,
+                            activeTool: {
+                              ...m.activeTool,
+                              status: 'completed',
+                              result: { status: 'EXECUTION_ERROR', error: errMsg },
+                            },
+                            content:
+                              (m.content ? `${m.content}\n\n` : '') +
+                              `**Action failed:** ${errMsg}`,
+                          }
+                        : m,
+                    ),
+                  );
+                }
+              }}
               onRejectAction={(msgId) =>
                 setMessages((prev) =>
                   prev.map((m) =>
@@ -579,7 +622,7 @@ export default function ChatPage() {
               }}
             />
 
-            <div className="p-2 sm:p-3 pb-safe bg-gradient-to-t from-white via-white/95 to-transparent shrink-0">
+            <div className="p-2 sm:p-3 pb-safe bg-gradient-to-t from-white via-white to-white/95 border-t border-slate-100/80 md:border-t-0 shrink-0">
               <div className="w-full max-w-3xl mx-auto relative px-1 sm:px-0">
                 <ChatOmnibox
                   input={input}

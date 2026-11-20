@@ -3,15 +3,11 @@
 import React, { useState, useEffect } from 'react';
 import {
   CreditCard,
-  ShieldCheck,
   Zap,
   CheckCircle2,
-  Sparkles,
   ArrowUpRight,
-  TrendingUp,
   Cpu,
   FileText,
-  AlertTriangle,
   RefreshCw,
 } from 'lucide-react';
 import {
@@ -51,7 +47,7 @@ export default function BillingPage() {
     if (usage?.tier === tier) return;
     setUpgradingTier(tier);
     try {
-      const res = await upgradeSubscription(tier);
+      await upgradeSubscription(tier);
       setSuccessMsg(
         language === 'my'
           ? `အစီအစဉ်ကို ${SUBSCRIPTION_TIERS[tier].displayName} သို့ အောင်မြင်စွာ ပြောင်းလဲပြီးပါပြီ!`

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { ReactNode, useState } from 'react';
+import React, { ReactNode, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
@@ -14,11 +14,13 @@ import {
   HelpCircle,
   CreditCard,
   Cpu,
+  WifiOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/context/language-context';
 import { BrandIcon } from '@/components/ui/brand-icon';
 import { LanguageSwitcher } from '@/components/ui/language-switcher';
+import { fetchCurrentTenant, subscribeOfflineMode } from '@/lib/api-client';
 
 interface AppShellProps {
   children: ReactNode;
@@ -27,7 +29,30 @@ interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isOfflineDemo, setIsOfflineDemo] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [tenantOrgId, setTenantOrgId] = useState<string>('mock-org-default');
+  const [tenantRole, setTenantRole] = useState<string | null>(null);
   const { t } = useLanguage();
+
+  useEffect(() => {
+    return subscribeOfflineMode((offline) => {
+      setIsOfflineDemo(offline);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (pathname === '/') return;
+    let cancelled = false;
+    fetchCurrentTenant().then((tenant) => {
+      if (cancelled || !tenant) return;
+      if (tenant.organizationId) setTenantOrgId(tenant.organizationId);
+      if (tenant.userRole) setTenantRole(tenant.userRole);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
 
   const isLandingPage = pathname === '/';
   const isChatPage = pathname === '/chat' || pathname?.startsWith('/chat');
@@ -92,7 +117,12 @@ export function AppShell({ children }: AppShellProps) {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
+    <div
+      className={cn(
+        'flex flex-col md:flex-row',
+        isChatPage ? 'h-dvh overflow-hidden bg-white md:bg-slate-50' : 'min-h-screen bg-slate-50',
+      )}
+    >
       {/* Mobile Header Bar (suppressed on /chat to provide dedicated Gemini mobile header) */}
       {!isChatPage && (
         <div className="md:hidden bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-40">
@@ -182,10 +212,10 @@ export function AppShell({ children }: AppShellProps) {
             <span>{t.multiTenantActive}</span>
           </div>
           <p className="text-slate-500 text-[11px] leading-relaxed">
-            {t.roleAdmin}
+            {tenantRole ? `Role: ${tenantRole}` : t.roleAdmin}
           </p>
           <p className="text-slate-400 text-[10px] mt-1 font-mono truncate">
-            Org: mock-org-default
+            Org: {tenantOrgId}
           </p>
         </div>
       </aside>
@@ -195,14 +225,36 @@ export function AppShell({ children }: AppShellProps) {
         id="main-content"
         tabIndex={-1}
         className={cn(
-          'flex-1 flex flex-col min-w-0 outline-none',
-          isChatPage ? 'h-dvh overflow-hidden p-0' : 'overflow-y-auto',
+          'flex-1 min-h-0 flex flex-col min-w-0 outline-none',
+          isChatPage ? 'overflow-hidden p-0' : 'overflow-y-auto',
         )}
       >
+        {isOfflineDemo && !bannerDismissed && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-900 flex items-center justify-between gap-2 shrink-0"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <WifiOff className="w-3.5 h-3.5 text-amber-600 shrink-0" aria-hidden="true" />
+              <span className="truncate font-medium">
+                Offline Demo Mode — Backend API unreachable; displaying local sample data.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setBannerDismissed(true)}
+              aria-label="Dismiss offline notice"
+              className="p-1 rounded hover:bg-amber-100 text-amber-700 shrink-0"
+            >
+              <X className="w-3.5 h-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        )}
         <div
           className={cn(
-            'flex-1 w-full',
-            isChatPage ? 'h-full p-0 flex flex-col' : 'p-4 md:p-8 max-w-7xl mx-auto',
+            'flex-1 min-h-0 w-full',
+            isChatPage ? 'p-0 flex flex-col' : 'p-4 md:p-8 max-w-7xl mx-auto',
           )}
         >
           {children}

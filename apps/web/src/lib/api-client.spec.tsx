@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { clearDemoSessionCache, getAuthHeaders, submitFeedback } from './api-client';
+import {
+  clearDemoSessionCache,
+  getAuthHeaders,
+  registerAuthTokenProvider,
+  submitFeedback,
+} from './api-client';
 import { FeedbackType } from '@knowledge/shared';
 
 describe('API Client — Portfolio Demo Session Auth & 401 Retry', () => {
@@ -7,6 +12,7 @@ describe('API Client — Portfolio Demo Session Auth & 401 Retry', () => {
 
   beforeEach(() => {
     clearDemoSessionCache();
+    registerAuthTokenProvider(null);
   });
 
   afterEach(() => {
@@ -66,5 +72,16 @@ describe('API Client — Portfolio Demo Session Auth & 401 Retry', () => {
     const res = await submitFeedback('log-1', FeedbackType.THUMBS_UP);
     expect(res).toEqual({ success: true });
     expect(fetchMock).toHaveBeenCalledTimes(4); // demo-session -> 401 -> demo-session refresh -> 200
+  });
+
+  it('prefers registered Clerk auth token provider over demo session when available', async () => {
+    const fetchMock = vi.fn();
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    registerAuthTokenProvider(async () => 'clerk_live_jwt_token_xyz');
+    const headers = await getAuthHeaders(true);
+
+    expect(headers['Authorization']).toBe('Bearer clerk_live_jwt_token_xyz');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

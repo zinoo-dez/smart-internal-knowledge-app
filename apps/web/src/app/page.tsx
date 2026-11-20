@@ -14,14 +14,9 @@ import {
   Network,
   Languages,
   BarChart3,
-  ExternalLink,
-  ChevronRight,
   Menu,
   X,
   Lock,
-  Zap,
-  Users,
-  FileText,
 } from 'lucide-react';
 import { useLanguage } from '@/context/language-context';
 import { BrandIcon } from '@/components/ui/brand-icon';

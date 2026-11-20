@@ -4,11 +4,9 @@ import React, { useEffect, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
-  UserCheck,
   Search,
   BookOpen,
   X,
-  FileEdit,
 } from 'lucide-react';
 import { KnowledgeGapItem, KnowledgeGapSummaryResponse } from '@knowledge/shared';
 import { Column, DataTable } from '@/components/ui/data-table';
