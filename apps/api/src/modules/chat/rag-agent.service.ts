@@ -530,10 +530,10 @@ export class RagAgentService {
 
     if (!chatModel) {
       const lastUserTurn = [...priorTurns].reverse().find((t) => t.role === 'user');
-      if (
-        lastUserTurn &&
-        /\b(it|that|this|there|them|how do i connect|how to setup)\b/i.test(currentQuery)
-      ) {
+      const hasAnaphor =
+        /\b(it|that|this|there|them|how do i connect|how to setup)\b/i.test(currentQuery) ||
+        /(?:အဲဒါ|ဒါကို|သူ့ကို|ဘယ်လို|ထပ်ရှင်းပြ|မြန်မာလို)/.test(currentQuery);
+      if (lastUserTurn && hasAnaphor) {
         return `${lastUserTurn.content} ${currentQuery}`;
       }
       return currentQuery;
@@ -671,6 +671,7 @@ export class RagAgentService {
     modelProvider?: string,
     modelName?: string,
   ): Promise<{ text: string; citations: DocumentCitation[] }> {
+    const startTime = Date.now();
     const sanitizedUserMessage = this.dataSanitizer
       ? this.dataSanitizer.sanitizeText(userQuery)
       : userQuery;
@@ -716,6 +717,10 @@ export class RagAgentService {
     });
 
     let answerText: string;
+    let activeProvider = plan.preferredProvider;
+    let activeModelName = plan.preferredModel || this.router.getDefaultGeminiModel();
+    let invokedUsage: TokenUsageMetrics | undefined;
+    let estimatedInputChars = sanitizedUserMessage.length;
     const canaryToken = `CANARY-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
 
     if (citations.length > 0) {
@@ -733,8 +738,9 @@ export class RagAgentService {
       const systemPrompt = this.buildSystemPrompt(formatted.contextBlocks, undefined, canaryToken);
       const safeUserQuery = this.promptSecurity.escapeXmlDelimiters(sanitizedUserMessage);
       const userPrompt = `<user_query>\n${safeUserQuery}\n</user_query>`;
+      estimatedInputChars = systemPrompt.length + userPrompt.length;
 
-      const { content: invokedContent } = await this.invokeWithCircuitBreaker(
+      const invoked = await this.invokeWithCircuitBreaker(
         systemPrompt,
         userPrompt,
         plan.preferredProvider,
@@ -742,8 +748,13 @@ export class RagAgentService {
         { thinkingLevel: plan.thinkingLevel },
       );
 
+      if (invoked?.providerUsed) activeProvider = invoked.providerUsed;
+      if (invoked?.modelUsed) activeModelName = invoked.modelUsed;
+      if (invoked?.usage) invokedUsage = invoked.usage;
+
       const rawAnswer =
-        invokedContent || this.grounding.generateSynthesizedAnswer(sanitizedUserMessage, citations);
+        invoked?.content ||
+        this.grounding.generateSynthesizedAnswer(sanitizedUserMessage, citations);
       answerText = FollowUpStreamFilter.stripAndExtract(rawAnswer).cleanText;
     } else {
       answerText = await this.buildNoCitationsFallback(userQuery, sanitizedUserMessage);
@@ -779,6 +790,52 @@ export class RagAgentService {
         answerText,
         citations,
       );
+    }
+
+    // Persist unified telemetry for non-streaming channels (Slack Bot / workflows) & trigger async judge
+    const latencyMs = Date.now() - startTime;
+    const finalUsage =
+      invokedUsage || this.extractUsageSafe(null, estimatedInputChars, answerText.length);
+    const isUnresolved = citations.length === 0;
+    const gapCategory = isUnresolved
+      ? this.grounding.classifyGapCategory(sanitizedUserMessage)
+      : null;
+    const faithfulnessScore = this.evaluateCitationGrounding(answerText, citations);
+
+    try {
+      const createLog = this.prisma?.client?.queryLog?.create;
+      if (typeof createLog === 'function') {
+        const queryLog = await createLog({
+          data: {
+            organizationId: tenant.organizationId,
+            userId: tenant.userId,
+            conversationId: `channel-${tenant.userId}-${Date.now()}`,
+            query: userQuery,
+            response: answerText,
+            modelProvider: activeProvider,
+            modelName: activeModelName,
+            promptTokens: finalUsage.promptTokens,
+            completionTokens: finalUsage.completionTokens,
+            totalTokens: finalUsage.totalTokens,
+            latencyMs,
+            citations: JSON.parse(JSON.stringify(citations)),
+            faithfulnessScore,
+            isUnresolved,
+            gapCategory,
+          },
+        });
+        if (queryLog?.id) {
+          this.scheduleBackgroundFaithfulnessJudge(
+            tenant.organizationId,
+            queryLog.id,
+            sanitizedUserMessage,
+            answerText,
+            citations,
+          );
+        }
+      }
+    } catch (err) {
+      this.logger.debug(`Prisma queryLog.create offline in generateAnswer: ${(err as Error).message}`);
     }
 
     return { text: answerText, citations };
@@ -1583,11 +1640,12 @@ export class RagAgentService {
     const safeUserQuery = this.promptSecurity.escapeXmlDelimiters(sanitizedQuery);
     const synthesisUserPrompt = `<user_query>\n${safeUserQuery}\n</user_query>`;
 
+    // Omit activeMcpTools schemas during final <tool_output> synthesis so Block 1 reuses the warm default cache prefix
     const streamed = await this.streamWithProviderFailover(
       tenant,
       sanitizedQuery,
       toolContextBlock,
-      activeMcpTools,
+      [],
       priorTurns,
       synthesisUserPrompt,
       canaryToken,
@@ -1623,15 +1681,54 @@ export class RagAgentService {
     tool: McpToolSummary,
     args: Record<string, unknown>,
   ): boolean {
-    const required = Array.isArray((tool.inputSchema as any)?.required)
-      ? ((tool.inputSchema as any).required as string[])
-      : [];
+    const schema = (tool.inputSchema || {}) as {
+      required?: unknown;
+      properties?: Record<string, { type?: string; enum?: unknown[] }>;
+    };
+    const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
     for (const key of required) {
       const value = args[key];
       if (value === undefined || value === null || value === '') {
         return false;
       }
     }
+
+    const properties = schema.properties;
+    if (properties && typeof properties === 'object') {
+      for (const [key, value] of Object.entries(args)) {
+        if (value === undefined || value === null) continue;
+        const propSpec = properties[key];
+        if (!propSpec) continue;
+
+        if (Array.isArray(propSpec.enum) && !propSpec.enum.includes(value)) {
+          return false;
+        }
+
+        switch (propSpec.type) {
+          case 'string':
+            if (typeof value !== 'string') return false;
+            break;
+          case 'number':
+            if (typeof value !== 'number' || !Number.isFinite(value)) return false;
+            break;
+          case 'integer':
+            if (typeof value !== 'number' || !Number.isInteger(value)) return false;
+            break;
+          case 'boolean':
+            if (typeof value !== 'boolean') return false;
+            break;
+          case 'array':
+            if (!Array.isArray(value)) return false;
+            break;
+          case 'object':
+            if (typeof value !== 'object' || Array.isArray(value)) return false;
+            break;
+          default:
+            break;
+        }
+      }
+    }
+
     return true;
   }
 

@@ -202,6 +202,24 @@ export class SlackBotService {
     return text.replace(/<@[A-Z0-9]+>/g, '').trim();
   }
 
+  private getAppBaseUrl(): string {
+    const configured =
+      process.env.WEB_APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    return configured.replace(/\/+$/, '');
+  }
+
+  private isSafeHttpUrl(rawUrl?: string): boolean {
+    if (!rawUrl || typeof rawUrl !== 'string') return false;
+    const trimmed = rawUrl.trim();
+    if (!trimmed || trimmed.startsWith('//')) return false;
+    try {
+      const parsed = new URL(trimmed);
+      return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Formats grounded answer and citations into rich Slack Block Kit layout.
    */
@@ -213,6 +231,8 @@ export class SlackBotService {
     threadTs?: string;
   }): SlackBlockKitMessage {
     const blocks: Array<Record<string, unknown>> = [];
+    const appBaseUrl = this.getAppBaseUrl();
+    const fallbackDocsUrl = `${appBaseUrl}/admin/documents`;
 
     // 1. Primary Answer Block
     blocks.push({
@@ -227,7 +247,7 @@ export class SlackBotService {
     if (params.citations && params.citations.length > 0) {
       const sourceLinks = params.citations
         .map((c, i) => {
-          const url = c.sourceUrl || `http://localhost:3000/admin/documents`;
+          const url = this.isSafeHttpUrl(c.sourceUrl) ? c.sourceUrl! : fallbackDocsUrl;
           return `*[${i + 1}]* <${url}|${c.documentTitle}>`;
         })
         .join('  •  ');
@@ -251,7 +271,7 @@ export class SlackBotService {
         {
           type: 'button',
           text: { type: 'plain_text', text: 'Open in Assistant' },
-          url: `http://localhost:3000/chat?q=${encodedQuery}`,
+          url: `${appBaseUrl}/chat?q=${encodedQuery}`,
           action_id: 'open_web_assistant',
         },
         {

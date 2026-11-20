@@ -1204,5 +1204,244 @@ describe('RagAgentService', () => {
         });
       });
     });
+
+    describe('P3 Optimizations (MCP Cache Reuse, Schema Type Validation, Myanmar Anaphora & generateAnswer Telemetry)', () => {
+      it('omits <available_mcp_tools> schemas during post-tool synthesis so Block 1 shares the warm default prompt cache', async () => {
+        const activeTools: McpToolSummary[] = [
+          {
+            id: 't-sql',
+            serverId: 'mcp-neon-postgres',
+            name: 'postgres_run_query',
+            description: 'Run read-only SQL',
+            inputSchema: {
+              type: 'object',
+              properties: { query: { type: 'string' } },
+              required: ['query'],
+            },
+            isEnabled: true,
+            requireApproval: false,
+            createdAt: new Date().toISOString(),
+          },
+        ];
+
+        const streamFn = vi.fn().mockImplementation(async () =>
+          (async function* () {
+            yield { content: 'Headcount in Yangon is 42.' };
+          })(),
+        );
+        const mockModel = {
+          bindTools: vi.fn().mockReturnValue({
+            invoke: vi.fn().mockResolvedValue({
+              tool_calls: [{ name: 'postgres_run_query', args: { query: 'SELECT 1;' } }],
+            }),
+          }),
+          stream: streamFn,
+        };
+        const fakeRouter: any = {
+          resolveChatModel: vi.fn().mockReturnValue({
+            model: mockModel,
+            provider: AIModelProvider.CLAUDE,
+            modelName: 'claude-sonnet-4-20250514',
+          }),
+          resolveHelperModel: vi.fn().mockReturnValue({ model: null }),
+          getOrderedFailoverProviders: vi.fn().mockReturnValue([AIModelProvider.CLAUDE]),
+          checkAndConsumeTokenBudget: vi.fn().mockReturnValue({
+            allowed: true,
+            remainingTokens: 499000,
+            limit: 500000,
+            resetInSeconds: 3600,
+          }),
+          getDefaultGeminiModel: vi.fn().mockReturnValue('gemini-2.5-flash'),
+          recordProviderSuccess: vi.fn(),
+        };
+
+        const toolRag = new RagAgentService(
+          mockPrisma as PrismaService,
+          mockTools as AgentToolsService,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { getActiveToolsForTenant: vi.fn().mockResolvedValue(activeTools) } as any,
+          { executeTool: vi.fn().mockResolvedValue({ toolName: 'postgres_run_query', latencyMs: 5, result: { rows: [{ c: 42 }] } }) } as any,
+          undefined,
+          undefined,
+          fakeRouter,
+        );
+        mockTools.searchKnowledgeBase.mockResolvedValue([]);
+
+        const { res } = createMockResponse();
+        await toolRag.streamChat(
+          tenant,
+          {
+            messages: [{ role: 'user', content: 'Query office count' }],
+            modelProvider: AIModelProvider.CLAUDE,
+            mode: 'tools',
+          },
+          res,
+        );
+
+        const synthMessages = streamFn.mock.calls[0][0];
+        const block1Text = ((synthMessages[0] as SystemMessage).content as any[])[0].text;
+        expect(block1Text).not.toContain('<available_mcp_tools>');
+      });
+
+      it('rejects type-mismatched and invalid-enum bindTools() arguments before executing MCP tool', async () => {
+        const activeTools: McpToolSummary[] = [
+          {
+            id: 't-gh',
+            serverId: 'mcp-github-enterprise',
+            name: 'github_get_issue',
+            description: 'Fetch GitHub issue',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                repo: { type: 'string' },
+                issueNumber: { type: 'number' },
+                state: { type: 'string', enum: ['open', 'closed'] },
+              },
+              required: ['repo', 'issueNumber'],
+            },
+            isEnabled: true,
+            requireApproval: false,
+            createdAt: new Date().toISOString(),
+          },
+        ];
+
+        const executeSpy = vi.fn();
+        const mockModel = {
+          bindTools: vi.fn().mockReturnValue({
+            invoke: vi.fn().mockResolvedValue({
+              tool_calls: [
+                {
+                  name: 'github_get_issue',
+                  // Invalid type ("not-a-number" for number)
+                  args: { repo: 'acme/web', issueNumber: 'not-a-number' },
+                },
+              ],
+            }),
+          }),
+          stream: vi.fn(),
+        };
+        const fakeRouter: any = {
+          resolveChatModel: vi.fn().mockReturnValue({
+            model: mockModel,
+            provider: AIModelProvider.GEMINI,
+            modelName: 'gemini-2.5-flash',
+          }),
+          resolveHelperModel: vi.fn().mockReturnValue({ model: null }),
+          getOrderedFailoverProviders: vi.fn().mockReturnValue([AIModelProvider.GEMINI]),
+          checkAndConsumeTokenBudget: vi.fn().mockReturnValue({
+            allowed: true,
+            remainingTokens: 499000,
+            limit: 500000,
+            resetInSeconds: 3600,
+          }),
+          getDefaultGeminiModel: vi.fn().mockReturnValue('gemini-2.5-flash'),
+        };
+
+        const rag = new RagAgentService(
+          mockPrisma as PrismaService,
+          mockTools as AgentToolsService,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          { getActiveToolsForTenant: vi.fn().mockResolvedValue(activeTools) } as any,
+          { executeTool: executeSpy } as any,
+          undefined,
+          undefined,
+          fakeRouter,
+        );
+        mockTools.searchKnowledgeBase.mockResolvedValue([]);
+
+        const { res } = createMockResponse();
+        await rag.streamChat(
+          tenant,
+          { messages: [{ role: 'user', content: 'Fetch issue' }], mode: 'tools' },
+          res,
+        );
+
+        expect(executeSpy).not.toHaveBeenCalled();
+      });
+
+      it('condenses offline Myanmar anaphoric follow-ups using prior turn context', async () => {
+        const condensed = await service.condenseFollowUpQuery(
+          [{ role: 'user', content: 'WireGuard VPN မူဝါဒ' }],
+          'အဲဒါ ဘယ်လို ချိတ်ဆက်ရမလဲ?',
+          null,
+        );
+        expect(condensed).toContain('WireGuard VPN');
+        expect(condensed).toContain('အဲဒါ ဘယ်လို ချိတ်ဆက်ရမလဲ?');
+      });
+
+      it('records QueryLog telemetry and usage_metadata inside non-streaming generateAnswer() (Slack/workflow parity)', async () => {
+        mockTools.searchKnowledgeBase.mockResolvedValue([
+          {
+            chunkId: 'c1',
+            documentId: 'd1',
+            documentTitle: 'VPN Guide',
+            source: DocumentSource.FILE_UPLOAD,
+            snippet: 'Connect via WireGuard port 51820.',
+            relevanceScore: 0.96,
+          },
+        ]);
+
+        const fakeRouter: any = {
+          resolveChatModel: vi.fn().mockReturnValue({
+            model: null,
+            provider: AIModelProvider.GEMINI,
+            modelName: 'gemini-2.5-flash',
+          }),
+          resolveHelperModel: vi.fn().mockReturnValue({ model: null }),
+          classifyQueryComplexity: vi.fn().mockReturnValue({
+            tier: 'FLASH',
+            recommendedProvider: AIModelProvider.GEMINI,
+            recommendedModel: 'gemini-2.5-flash',
+            reason: 'Direct lookup',
+          }),
+          invokeWithCircuitBreaker: vi.fn().mockResolvedValue({
+            content: 'Connect via WireGuard port 51820 [1].',
+            providerUsed: AIModelProvider.GEMINI,
+            modelUsed: 'gemini-2.5-flash',
+            usage: {
+              promptTokens: 1520,
+              completionTokens: 48,
+              totalTokens: 1568,
+              cacheReadTokens: 900,
+              source: 'provider',
+            },
+          }),
+          getDefaultGeminiModel: vi.fn().mockReturnValue('gemini-2.5-flash'),
+        };
+
+        const slackRag = new RagAgentService(
+          mockPrisma as PrismaService,
+          mockTools as AgentToolsService,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          fakeRouter,
+        );
+
+        const res = await slackRag.generateAnswer(tenant, 'How do I connect to VPN?');
+        expect(res.text).toContain('WireGuard port 51820');
+        expect(mockPrisma.client.queryLog.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            organizationId: tenant.organizationId,
+            promptTokens: 1520,
+            completionTokens: 48,
+            totalTokens: 1568,
+            modelProvider: AIModelProvider.GEMINI,
+            modelName: 'gemini-2.5-flash',
+          }),
+        });
+      });
+    });
   });
 });

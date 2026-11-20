@@ -208,5 +208,42 @@ describe('SlackBotService & SlackEventsController', () => {
       expect(textBlock.text.text).toContain('Mention me with any internal company policy');
       expect(mockRagAgentService.generateAnswer).not.toHaveBeenCalled();
     });
+
+    it('uses configurable WEB_APP_URL in Slack Block Kit buttons and blocks unsafe javascript:// sourceUrl schemes', () => {
+      const origUrl = process.env.WEB_APP_URL;
+      process.env.WEB_APP_URL = 'https://knowledge.example.com/';
+
+      try {
+        const msg = slackBotService.formatSlackBlockKit({
+          answerText: 'Grounded answer [1].',
+          citations: [
+            {
+              chunkId: 'c1',
+              documentId: 'd1',
+              documentTitle: 'Unsafe Legacy Doc',
+              source: DocumentSource.NOTION,
+              sourceUrl: 'javascript:alert(1)',
+              snippet: 'Snippet',
+              relevanceScore: 0.9,
+            },
+          ],
+          originalQuery: 'vpn policy',
+          channel: 'C_GENERAL',
+        });
+
+        const contextBlock = msg.blocks[1] as any;
+        expect(contextBlock.elements[0].text).not.toContain('javascript:');
+        expect(contextBlock.elements[0].text).toContain('https://knowledge.example.com/admin/documents');
+
+        const actionsBlock = msg.blocks[2] as any;
+        expect(actionsBlock.elements[0].url).toBe('https://knowledge.example.com/chat?q=vpn%20policy');
+      } finally {
+        if (origUrl !== undefined) {
+          process.env.WEB_APP_URL = origUrl;
+        } else {
+          delete process.env.WEB_APP_URL;
+        }
+      }
+    });
   });
 });
