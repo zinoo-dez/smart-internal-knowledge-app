@@ -24,6 +24,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { useLanguage } from '@/context/language-context';
+import { BrandIcon } from '@/components/ui/brand-icon';
 import { LanguageSwitcher } from '@/components/ui/language-switcher';
 
 export default function HomePage() {
@@ -176,9 +177,7 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           {/* Brand Logo */}
           <Link href="/" className="flex items-center gap-3 group">
-            <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-base shadow-sm group-hover:bg-blue-700 transition-colors">
-              <BookOpen className="w-5 h-5" />
-            </div>
+            <BrandIcon className="w-9 h-9 shadow-sm group-hover:brightness-110 transition-all" />
             <div>
               <span className="font-bold text-slate-900 text-base tracking-tight block leading-tight">
                 {t.appTitle}
@@ -739,9 +738,7 @@ export default function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-12">
             <div className="md:col-span-2 space-y-3">
               <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center text-white font-bold text-xs">
-                  <BookOpen className="w-4 h-4" />
-                </div>
+                <BrandIcon className="w-7 h-7 rounded-md" />
                 <span className="font-bold text-slate-900 text-sm">{t.appTitle}</span>
               </div>
               <p className="text-xs text-slate-500 max-w-sm leading-relaxed">

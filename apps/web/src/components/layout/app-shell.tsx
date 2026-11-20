@@ -4,7 +4,6 @@ import React, { ReactNode, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  BookOpen,
   Bot,
   BarChart3,
   Menu,
@@ -18,6 +17,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/context/language-context';
+import { BrandIcon } from '@/components/ui/brand-icon';
 import { LanguageSwitcher } from '@/components/ui/language-switcher';
 
 interface AppShellProps {
@@ -97,9 +97,7 @@ export function AppShell({ children }: AppShellProps) {
       {!isChatPage && (
         <div className="md:hidden bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-40">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm">
-              KA
-            </div>
+            <BrandIcon className="w-8 h-8" />
             <span className="font-semibold text-slate-900 text-sm">{t.appTitle}</span>
           </div>
           <div className="flex items-center gap-2">
@@ -137,9 +135,7 @@ export function AppShell({ children }: AppShellProps) {
       >
         {/* Brand Header */}
         <div className="p-6 border-b border-slate-100 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-semibold text-base shadow-sm">
-            <BookOpen className="w-5 h-5" />
-          </div>
+          <BrandIcon className="w-9 h-9 shadow-sm" />
           <div>
             <div className="font-semibold text-slate-900 text-sm leading-tight">{t.appTitle}</div>
             <div className="text-xs text-slate-500 font-medium">{t.appSubtitle}</div>

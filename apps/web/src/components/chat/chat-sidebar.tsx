@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { ConversationSummary } from '@knowledge/shared';
 import { useLanguage } from '@/context/language-context';
+import { BrandIcon } from '@/components/ui/brand-icon';
 import { LanguageSwitcher } from '@/components/ui/language-switcher';
 import { cn } from '@/lib/utils';
 
@@ -70,9 +71,7 @@ export function ChatSidebar({
           {/* Mobile Drawer Brand Header with Close Button */}
           <div className="flex items-center justify-between pb-2 border-b border-slate-100 md:hidden">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-xs">
-                KA
-              </div>
+              <BrandIcon className="w-7 h-7" />
               <span className="font-semibold text-slate-900 text-xs">{t.appTitle}</span>
             </div>
             <button

@@ -1,8 +1,9 @@
 'use client';
 
 import React from 'react';
-import { Bot, Menu, PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react';
+import { Menu, PanelLeftClose, PanelLeftOpen, Plus } from 'lucide-react';
 import { useLanguage } from '@/context/language-context';
+import { BrandIcon } from '@/components/ui/brand-icon';
 import { LanguageSwitcher } from '@/components/ui/language-switcher';
 import { ModelOption } from './types';
 
@@ -48,7 +49,7 @@ export function ChatHeader({
           </span>
         </button>
         <div className="flex items-center gap-2 min-w-0">
-          <Bot className="w-4 h-4 text-blue-600 shrink-0" aria-hidden="true" />
+          <BrandIcon variant="mark" className="w-4 h-4 text-blue-600 shrink-0" />
           <span className="text-xs font-semibold text-slate-800 tracking-tight truncate">
             {t.appTitle}
           </span>
