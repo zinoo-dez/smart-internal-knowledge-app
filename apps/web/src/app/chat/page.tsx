@@ -243,12 +243,20 @@ export default function ChatPage() {
         );
       }
 
+      const recentHistory = messages
+        .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0)
+        .slice(-6)
+        .map((m) => ({
+          role: m.role,
+          content: m.content.slice(0, 1000),
+        }));
+
       const headers = await getAuthHeaders(true);
       const response = await fetch(`${API_BASE_URL}/api/chat/stream`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          messages: [{ role: 'user', content: query }],
+          messages: [...recentHistory, { role: 'user', content: query }],
           modelProvider: selectedModel.provider,
           modelName: selectedModel.modelName,
           conversationId: activeConversationId || undefined,

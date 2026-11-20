@@ -4,9 +4,9 @@ export const QueryDecompositionSchema = z.object({
   queries: z
     .array(z.string().trim().min(2).max(300))
     .min(1)
-    .max(2)
+    .max(3)
     .describe(
-      '1 to 2 concise standalone search queries covering distinct topics in the user inquiry',
+      '1 to 3 concise standalone search queries covering distinct topics or research facets in the user inquiry',
     ),
 });
 

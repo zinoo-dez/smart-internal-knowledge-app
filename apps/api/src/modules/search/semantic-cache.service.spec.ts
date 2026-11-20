@@ -201,4 +201,57 @@ describe('SemanticCacheService (Zero-Latency Redis Semantic Vector Cache)', () =
       expect(stats.estimatedCostSavingsUsd).toBe(0.002);
     });
   });
+
+  describe('P1 Language Partition Isolation (en vs my)', () => {
+    it('prevents cross-lingual cache poisoning when English and Myanmar queries share an identical multilingual embedding vector', async () => {
+      const sharedMultilingualVector = new Array(768).fill(0.25);
+
+      await cacheService.set(
+        tenantEngineering,
+        'How do I connect to company VPN?',
+        sharedMultilingualVector,
+        'Download WireGuard from 1Password and import company.conf [1].',
+        [],
+      );
+
+      // Identical embedding vector in Myanmar MUST MISS the English partition
+      const myMatch = await cacheService.get(
+        tenantEngineering,
+        'ကုမ္ပဏီ VPN ကို ဘယ်လို ချိတ်ဆက်ရမလဲ?',
+        sharedMultilingualVector,
+      );
+      expect(myMatch).toBeNull();
+
+      // Explicit "in Burmese" request MUST ALSO MISS the English partition
+      const explicitMyMatch = await cacheService.get(
+        tenantEngineering,
+        'How do I connect to company VPN? Explain in Burmese',
+        sharedMultilingualVector,
+      );
+      expect(explicitMyMatch).toBeNull();
+
+      // Store Myanmar answer and verify same-language Myanmar lookup HITS
+      await cacheService.set(
+        tenantEngineering,
+        'ကုမ္ပဏီ VPN ကို ဘယ်လို ချိတ်ဆက်ရမလဲ?',
+        sharedMultilingualVector,
+        '1Password မှ WireGuard configuration ဖိုင်ကို import လုပ်ပါ [1]။',
+        [],
+      );
+      const myHit = await cacheService.get(
+        tenantEngineering,
+        'VPN ချိတ်နည်း ပြောပြပါ',
+        sharedMultilingualVector,
+      );
+      expect(myHit).not.toBeNull();
+      expect(myHit!.answer).toContain('1Password မှ WireGuard');
+
+      // Department invalidation must evict BOTH English and Myanmar partitions
+      const evicted = await cacheService.invalidate(
+        tenantEngineering.organizationId,
+        Department.ENGINEERING,
+      );
+      expect(evicted).toBe(2);
+    });
+  });
 });

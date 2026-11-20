@@ -21,11 +21,11 @@ export class ChatCompletionDto implements ChatCompletionRequest {
 
   @IsOptional()
   @IsEnum(AIModelProvider)
-  modelProvider?: string = AIModelProvider.GEMINI;
+  modelProvider?: string;
 
   @IsOptional()
   @IsString()
-  modelName?: string = 'gemini-2.5-flash';
+  modelName?: string;
 
   @IsOptional()
   @IsString()

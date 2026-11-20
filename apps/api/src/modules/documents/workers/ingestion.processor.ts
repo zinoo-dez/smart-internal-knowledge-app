@@ -8,6 +8,7 @@ import { DataSanitizerService } from '../services/data-sanitizer.service';
 export interface IngestionJobData {
   documentId: string;
   organizationId: string;
+  documentTitle?: string;
   content: string;
   department?: Department;
   metadata?: Record<string, unknown>;
@@ -30,6 +31,7 @@ export class IngestionProcessor {
     const {
       documentId,
       organizationId,
+      documentTitle,
       content,
       department = Department.ALL,
       metadata = {},
@@ -49,8 +51,8 @@ export class IngestionProcessor {
       // 2. Sanitize any PII, credentials, or private keys prior to chunking & embedding
       const sanitizedContent = this.dataSanitizer.sanitizeText(content);
 
-      // 3. Chunk sanitized text
-      const chunks = this.chunker.splitText(sanitizedContent);
+      // 3. Chunk sanitized text with Markdown structure preservation & contextual document/section prefixes
+      const chunks = this.chunker.splitText(sanitizedContent, { documentTitle });
       if (chunks.length === 0) {
         throw new Error('Document content is empty or unparsable');
       }
@@ -85,10 +87,11 @@ export class IngestionProcessor {
               ...metadata,
               chunkIndex: chunk.chunkIndex,
               totalChunks: chunks.length,
+              ...(chunk.sectionHeading ? { sectionHeading: chunk.sectionHeading } : {}),
             });
 
             valueClauses.push(
-              `(gen_random_uuid(), $${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}::"Department", $${paramIdx + 5}::vector, to_tsvector('english', $${paramIdx + 3}), $${paramIdx + 6}::jsonb, NOW())`,
+              `(gen_random_uuid(), $${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}::"Department", $${paramIdx + 5}::vector, (to_tsvector('simple', $${paramIdx + 3}) || to_tsvector('english', $${paramIdx + 3})), $${paramIdx + 6}::jsonb, NOW())`,
             );
 
             params.push(

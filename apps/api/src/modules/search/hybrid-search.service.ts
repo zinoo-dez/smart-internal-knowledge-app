@@ -56,11 +56,11 @@ export class HybridSearchService {
     const userClearance = tenant.clearanceLevel || (isAdmin ? 'RESTRICTED' : 'INTERNAL');
     const userClearanceRank = clearanceRanks[userClearance.toUpperCase()] ?? 1;
 
-    // 1. Generate query embedding vector
-    const queryVector = await this.embeddingService.embedText(dto.query);
-    const vectorString = `[${queryVector.join(',')}]`;
-
     try {
+      // 1. Generate query embedding vector inside try block so transient embedding blips fall back cleanly to keyword search
+      const queryVector = await this.embeddingService.embedText(dto.query);
+      const vectorString = `[${queryVector.join(',')}]`;
+
       // If rerank service is active, fetch candidate pool for 2nd stage scoring; otherwise topK
       const fetchLimit = this.rerankService ? candidateLimit : topK;
 

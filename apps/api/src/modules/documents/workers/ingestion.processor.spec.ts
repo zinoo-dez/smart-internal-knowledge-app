@@ -102,4 +102,28 @@ describe('IngestionProcessor (High-Throughput Bulk Chunk Ingestion)', () => {
       },
     });
   });
+
+  it('prepends contextual [documentTitle > sectionHeading] headers, stores sectionHeading metadata, and indexes dual simple/english tsvector', async () => {
+    const markdown = [
+      '# Security Controls',
+      '## VPN Access',
+      'All developers must connect via WireGuard using SSO certificates.',
+    ].join('\n');
+
+    await processor.processDocument({
+      documentId: 'doc-md-1',
+      organizationId: 'org-enterprise-1',
+      documentTitle: 'IT Runbook',
+      content: markdown,
+      department: Department.ENGINEERING,
+    });
+
+    const callArgs = mockPrisma.client.$executeRawUnsafe.mock.calls[0];
+    expect(callArgs[0]).toContain("to_tsvector('simple'");
+    expect(callArgs[0]).toContain("to_tsvector('english'");
+    // Chunk content carries contextual header
+    expect(callArgs[4]).toContain('[IT Runbook > Security Controls > VPN Access]');
+    // Chunk JSONB metadata records sectionHeading
+    expect(callArgs[7]).toContain('"sectionHeading":"Security Controls > VPN Access"');
+  });
 });

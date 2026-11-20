@@ -24,13 +24,13 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     badge: 'Default (Fast)',
   },
   {
-    id: 'claude-3-5-sonnet',
-    name: 'Claude 3.5 Sonnet',
-    shortLabel: 'Claude 3.5',
+    id: 'claude-sonnet-4',
+    name: 'Claude Sonnet 4',
+    shortLabel: 'Sonnet 4',
     provider: 'CLAUDE',
-    modelName: 'claude-3-5-sonnet-20241022',
+    modelName: 'claude-sonnet-4-20250514',
     purposeTitle: 'Everyday help',
-    subtitle: 'Claude 3.5 Sonnet',
+    subtitle: 'Claude Sonnet 4',
     badge: 'Deep Reasoning',
   },
   {

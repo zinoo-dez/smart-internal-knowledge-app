@@ -239,4 +239,21 @@ describe('HybridSearchService (pgvector + tsvector RRF)', () => {
     expect(response.citations).toHaveLength(1);
     expect(response.citations[0].chunkId).toBe('c-public');
   });
+
+  it('falls back gracefully to ABAC-enforced keyword search if query embedding transiently fails', async () => {
+    mockEmbeddingService.embedText.mockRejectedValueOnce(new Error('Gemini embedding timeout'));
+    mockPrisma.client.documentChunk.findMany.mockResolvedValue([
+      {
+        id: 'c-kw-1',
+        documentId: 'd-kw-1',
+        content: 'WireGuard VPN configuration instructions',
+        metadata: { clearanceLevel: 'INTERNAL' },
+        document: { title: 'VPN Guide', source: 'FILE_UPLOAD', sourceUrl: null },
+      },
+    ]);
+
+    const response = await service.search(tenant, { query: 'WireGuard', topK: 3 });
+    expect(response.citations).toHaveLength(1);
+    expect(response.citations[0].chunkId).toBe('c-kw-1');
+  });
 });

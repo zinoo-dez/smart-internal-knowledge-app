@@ -49,4 +49,59 @@ describe('RecursiveTextChunker', () => {
       expect(/[\u1000-\u109F]/.test(chunk.content)).toBe(true);
     }
   });
+
+  describe('P1 Markdown-Aware Contextual Chunking', () => {
+    it('tracks Markdown heading breadcrumbs and prepends [Doc Title > Section] contextual headers', () => {
+      const chunker = new RecursiveTextChunker(300, 50);
+      const markdownDoc = [
+        '# Employee Benefits',
+        '## Remote Work',
+        'Employees receive an ergonomic desk setup budget upon completing probation.',
+        '### Home Office Stipend',
+        '| Category | Limit | Cadence |',
+        '| --- | --- | --- |',
+        '| Ergonomic Chair | $500 | One-time |',
+        '| Internet | $80 | Monthly |',
+      ].join('\n');
+
+      const chunks = chunker.splitText(markdownDoc, {
+        documentTitle: 'HR Handbook 2026',
+      });
+
+      expect(chunks.length).toBeGreaterThanOrEqual(2);
+      expect(chunks[0].content).toContain('[HR Handbook 2026 > Employee Benefits > Remote Work]');
+      expect(chunks[0].sectionHeading).toBe('Employee Benefits > Remote Work');
+
+      const tableChunk = chunks.find((c) => c.content.includes('Ergonomic Chair'));
+      expect(tableChunk).toBeDefined();
+      expect(tableChunk!.content).toContain(
+        '[HR Handbook 2026 > Employee Benefits > Remote Work > Home Office Stipend]',
+      );
+      // Table stays intact with header row
+      expect(tableChunk!.content).toContain('| Category | Limit | Cadence |');
+      expect(tableChunk!.content).toContain('| Internet | $80 | Monthly |');
+    });
+
+    it('repeats Markdown table headers across continuation chunks when an oversized table must split', () => {
+      const chunker = new RecursiveTextChunker(120, 20);
+      const rows = Array.from(
+        { length: 8 },
+        (_, i) => `| Policy Row ${i + 1} | Description for benefit tier ${i + 1} | $${(i + 1) * 100} |`,
+      );
+      const largeTable = [
+        '# Compensation Table',
+        '| Tier | Details | Budget |',
+        '| --- | --- | --- |',
+        ...rows,
+      ].join('\n');
+
+      const chunks = chunker.splitText(largeTable, { documentTitle: 'Finance Policy' });
+      expect(chunks.length).toBeGreaterThan(1);
+      for (const chunk of chunks) {
+        expect(chunk.content).toContain('[Finance Policy > Compensation Table]');
+        expect(chunk.content).toContain('| Tier | Details | Budget |');
+        expect(chunk.content).toContain('| --- | --- | --- |');
+      }
+    });
+  });
 });

@@ -9,6 +9,8 @@ import {
 } from '@knowledge/shared';
 import Redis from 'ioredis';
 
+export type CacheLanguage = 'en' | 'my';
+
 export interface SemanticCacheEntry {
   id: string;
   query: string;
@@ -18,6 +20,7 @@ export interface SemanticCacheEntry {
   createdAt: number;
   department: Department;
   clearanceLevel?: ClearanceLevel;
+  language: CacheLanguage;
 }
 
 export interface SemanticCacheMatch {
@@ -32,7 +35,7 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SemanticCacheService.name);
 
   // In-memory fallback / local fast-path store
-  // Key format: `${organizationId}:${department}:${clearanceLevel}`
+  // Key format: `${organizationId}:${department}:${clearanceLevel}:${language}`
   private cacheStore = new Map<string, SemanticCacheEntry[]>();
 
   // Distributed Redis client (optional, auto-instantiated if REDIS_URL exists)
@@ -140,18 +143,31 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
-  private buildPartitionKey(orgId: string, dept: Department, clearance: ClearanceLevel): string {
-    return `${orgId}:${dept}:${clearance}`;
+  public detectQueryLanguage(query: string): CacheLanguage {
+    if (!query) return 'en';
+    const myanmarUnicode = /[\u1000-\u109F\uAA60-\uAA7F\uA9E0-\uA9FF]/;
+    const explicitMyanmarRequest = /\b(burmese|myanmar|ဗမာလို|မြန်မာလို|ရှင်းပြပေး|မြန်မာဘာသာ)\b/i;
+    return myanmarUnicode.test(query) || explicitMyanmarRequest.test(query) ? 'my' : 'en';
+  }
+
+  private buildPartitionKey(
+    orgId: string,
+    dept: Department,
+    clearance: ClearanceLevel,
+    language: CacheLanguage,
+  ): string {
+    return `${orgId}:${dept}:${clearance}:${language}`;
   }
 
   /**
    * Looks up query in the semantic cache using Cosine Similarity on embedding vectors.
-   * Enforces strict multi-tenant, department, clearance-level, and ethical wall ABAC isolation.
+   * Enforces strict multi-tenant, department, clearance-level, language, and ethical wall ABAC isolation.
    */
   async get(
     tenant: TenantContext,
     query: string,
     queryVector: number[],
+    explicitLanguage?: CacheLanguage,
   ): Promise<SemanticCacheMatch | null> {
     const orgId = tenant.organizationId;
 
@@ -168,14 +184,15 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
 
     const dept = tenant.department || Department.ALL;
     const clearance = this.resolveEffectiveClearance(tenant);
-    const partitionKey = this.buildPartitionKey(orgId, dept, clearance);
+    const language = explicitLanguage || this.detectQueryLanguage(query);
+    const partitionKey = this.buildPartitionKey(orgId, dept, clearance, language);
 
     const entries = [...(await this.loadPartitionEntries(partitionKey))];
 
-    // Also check company-wide partition at the exact same or PUBLIC clearance level
+    // Also check company-wide partition at the exact same clearance level & response language
     if (dept !== Department.ALL) {
       const allEntries = await this.loadPartitionEntries(
-        this.buildPartitionKey(orgId, Department.ALL, clearance),
+        this.buildPartitionKey(orgId, Department.ALL, clearance, language),
       );
       entries.push(...allEntries);
     }
@@ -223,6 +240,7 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
     queryVector: number[],
     answer: string,
     citations: DocumentCitation[],
+    explicitLanguage?: CacheLanguage,
   ): Promise<void> {
     // Do not cache responses scoped by matter-specific ethical walls
     if (this.hasFineGrainedMatterScope(tenant)) {
@@ -236,7 +254,8 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
     const orgId = tenant.organizationId;
     const dept = tenant.department || Department.ALL;
     const clearance = this.resolveEffectiveClearance(tenant);
-    const partitionKey = this.buildPartitionKey(orgId, dept, clearance);
+    const language = explicitLanguage || this.detectQueryLanguage(query);
+    const partitionKey = this.buildPartitionKey(orgId, dept, clearance, language);
 
     const newEntry: SemanticCacheEntry = {
       id: `cache-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -247,6 +266,7 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
       createdAt: Date.now(),
       department: dept,
       clearanceLevel: clearance,
+      language,
     };
 
     // 1. Update in-memory store

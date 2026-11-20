@@ -132,6 +132,7 @@ export class DocumentsService {
     const ingestionPayload = {
       documentId: document.id,
       organizationId: tenant.organizationId,
+      documentTitle: dto.title,
       content: sanitizedContent,
       department: dept,
     };
