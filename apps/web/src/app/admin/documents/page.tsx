@@ -20,6 +20,7 @@ import {
 import { ConnectorStatusResponse, Department, DocumentSource, DocumentSummary } from '@knowledge/shared';
 import { Column, DataTable } from '@/components/ui/data-table';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { isSafeExternalUrl } from '@/lib/utils';
 import {
   createDocument,
   deleteDocument,
@@ -215,11 +216,11 @@ export default function DocumentsPage() {
                 </span>
               )}
             </div>
-            {row.sourceUrl && (
+            {row.sourceUrl && isSafeExternalUrl(row.sourceUrl) && (
               <a
                 href={row.sourceUrl}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 className="text-xs text-blue-600 hover:underline flex items-center gap-1 mt-0.5"
               >
                 <span>External Link</span>

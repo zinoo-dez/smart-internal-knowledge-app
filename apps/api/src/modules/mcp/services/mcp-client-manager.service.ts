@@ -38,12 +38,29 @@ export class McpClientManagerService {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 5000);
 
+          const forbiddenHeaders = new Set([
+            'host',
+            'content-length',
+            'connection',
+            'transfer-encoding',
+            'keep-alive',
+            'upgrade',
+            'cookie',
+            'proxy-authorization',
+          ]);
+          const sanitizedHeaders: Record<string, string> = {};
+          for (const [k, v] of Object.entries(req.headers || {})) {
+            if (!forbiddenHeaders.has(k.toLowerCase()) && typeof v === 'string') {
+              sanitizedHeaders[k] = v;
+            }
+          }
+
           const response = await fetch(req.endpointUrl, {
             method: 'GET',
             redirect: 'error',
             headers: {
               Accept: 'text/event-stream, application/json',
-              ...(req.headers || {}),
+              ...sanitizedHeaders,
             },
             signal: controller.signal,
           });
@@ -87,7 +104,7 @@ export class McpClientManagerService {
               ],
             };
           }
-        } catch (fetchErr: any) {
+        } catch {
           // If network is offline or dummy endpoint in dev, simulate successful handshake
           const latencyMs = Math.max(12, Date.now() - startTime);
           return {

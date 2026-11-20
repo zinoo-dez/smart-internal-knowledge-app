@@ -23,6 +23,11 @@ import { DataSanitizerService } from '../modules/documents/services/data-sanitiz
 import { IngestionProcessor } from '../modules/documents/workers/ingestion.processor';
 import { SlackEventsController } from '../modules/documents/connectors/slack-events.controller';
 import { SlackBotService } from '../modules/documents/connectors/slack-bot.service';
+import { ConnectorsController } from '../modules/documents/connectors/connectors.controller';
+import { NotionConnector } from '../modules/documents/connectors/notion.connector';
+import { ConfluenceConnector } from '../modules/documents/connectors/confluence.connector';
+import { SlackConnector } from '../modules/documents/connectors/slack.connector';
+import { SyncSchedulerService } from '../modules/documents/services/sync-scheduler.service';
 import { PrismaService } from '../modules/prisma/prisma.service';
 
 describe('HTTP Integration & ValidationPipe Contract Suite (Supertest)', () => {
@@ -35,14 +40,14 @@ describe('HTTP Integration & ValidationPipe Contract Suite (Supertest)', () => {
         upsert: vi.fn().mockResolvedValue({ id: 'org-int-01', clerkOrgId: 'mock-org-default' }),
       },
       user: {
-        upsert: vi.fn().mockResolvedValue({
-          id: 'user-int-01',
-          clerkUserId: 'dev-admin-01',
+        upsert: vi.fn().mockImplementation(async (args: any) => ({
+          id: args?.where?.clerkUserId === 'member-int-01' ? 'user-int-member' : 'user-int-01',
+          clerkUserId: args?.where?.clerkUserId || 'dev-admin-01',
           organizationId: 'org-int-01',
-          email: 'admin@company.internal',
-          role: UserRole.ADMIN,
+          email: args?.create?.email || 'admin@company.internal',
+          role: args?.create?.role || UserRole.ADMIN,
           department: 'ALL',
-        }),
+        })),
       },
       document: {
         create: vi.fn().mockResolvedValue({ id: 'doc-int-1' }),
@@ -92,6 +97,7 @@ describe('HTTP Integration & ValidationPipe Contract Suite (Supertest)', () => {
         FeedbackController,
         McpController,
         DocumentsController,
+        ConnectorsController,
         SlackEventsController,
       ],
       providers: [
@@ -120,6 +126,10 @@ describe('HTTP Integration & ValidationPipe Contract Suite (Supertest)', () => {
           useValue: { processDocument: vi.fn().mockResolvedValue(undefined) },
         },
         DocumentsService,
+        { provide: NotionConnector, useValue: { getStatus: vi.fn(), syncPage: vi.fn() } },
+        { provide: ConfluenceConnector, useValue: { getStatus: vi.fn(), syncSpace: vi.fn() } },
+        { provide: SlackConnector, useValue: { getStatus: vi.fn(), handleWebhook: vi.fn() } },
+        { provide: SyncSchedulerService, useValue: { getScheduleStatus: vi.fn(), runScheduledSync: vi.fn() } },
         SlackBotService,
       ],
     }).compile();
@@ -377,6 +387,44 @@ describe('HTTP Integration & ValidationPipe Contract Suite (Supertest)', () => {
       expect(streamedText).toContain('cannot follow instructions');
       expect(res.text).not.toContain('"type":"citations"');
       expect(res.text).toContain('"type":"done"');
+    });
+  });
+
+  describe('7. Round-4 Red-Team HTTP Exploit Controls (SEC-11 MCP Execution Gate & SEC-13 Slack Webhook RBAC)', () => {
+    it('blocks non-admin MEMBER from executing requireApproval=true MCP tool or unregistered tool with HTTP 403/404', async () => {
+      await request(app.getHttpServer())
+        .post('/api/mcp/execute')
+        .set('x-mock-user-id', 'member-int-01')
+        .set('x-mock-role', 'MEMBER')
+        .send({
+          serverId: 'mcp-github-enterprise',
+          toolName: 'github_create_issue',
+          arguments: { repo: 'acme/web', title: 'Bypass approval' },
+        })
+        .expect(403);
+
+      await request(app.getHttpServer())
+        .post('/api/mcp/execute')
+        .set('Authorization', `Bearer ${demoToken}`)
+        .send({
+          serverId: 'mcp-github-enterprise',
+          toolName: 'unregistered_arbitrary_tool',
+          arguments: {},
+        })
+        .expect(404);
+    });
+
+    it('blocks non-admin MEMBER from invoking POST /api/connectors/slack/webhook with HTTP 403', async () => {
+      await request(app.getHttpServer())
+        .post('/api/connectors/slack/webhook')
+        .set('x-mock-user-id', 'member-int-01')
+        .set('x-mock-role', 'MEMBER')
+        .send({
+          channel: 'exec-secrets',
+          text: 'Poisoned webhook message',
+          department: 'EXECUTIVE',
+        })
+        .expect(403);
     });
   });
 });

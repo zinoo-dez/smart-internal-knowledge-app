@@ -68,6 +68,7 @@ export class ConnectorsController {
   }
 
   @Post('slack/webhook')
+  @Roles(UserRole.ADMIN)
   async handleSlackWebhook(
     @CurrentTenant() tenant: TenantContext,
     @Body() payload: SlackWebhookDto,

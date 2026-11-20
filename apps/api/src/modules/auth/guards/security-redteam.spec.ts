@@ -13,6 +13,7 @@ import { GroundingEvaluatorService } from '../../chat/services/grounding-evaluat
 import { AgentToolsService } from '../../chat/tools/agent-tools.service';
 import { ConversationsService } from '../../chat/conversations.service';
 import { McpService } from '../../mcp/services/mcp.service';
+import { McpClientManagerService } from '../../mcp/services/mcp-client-manager.service';
 import { DocumentsService } from '../../documents/documents.service';
 
 describe('Red-Team Security & Exploit Defense Suite (Hack & Fix Verification)', () => {
@@ -718,6 +719,132 @@ describe('Red-Team Security & Exploit Defense Suite (Hack & Fix Verification)', 
       expect(String(summarizerInvoke.mock.calls[0][0][1].content)).toContain(
         '&lt;/meeting_transcript&gt;',
       );
+    });
+  });
+
+  describe('12. Round-4 Red-Team Security Exploit Defenses (SEC-11..SEC-15)', () => {
+    it('EXPLOIT SEC-11: Member cannot execute requireApproval=true, disabled, or unregistered MCP tools directly', async () => {
+      const mcpService = new McpService({} as any);
+      const adminTenant: TenantContext = {
+        organizationId: 'org-mcp-sec',
+        userId: 'admin-01',
+        userRole: UserRole.ADMIN,
+        userEmail: 'admin@acme.com',
+      };
+      const memberTenant: TenantContext = {
+        organizationId: 'org-mcp-sec',
+        userId: 'member-01',
+        userRole: UserRole.MEMBER,
+        userEmail: 'member@acme.com',
+      };
+
+      // 1. Mutating tool requiring HITL approval must reject non-ADMIN execution
+      await expect(
+        mcpService.authorizeToolExecution(
+          memberTenant,
+          'mcp-github-enterprise',
+          'github_create_issue',
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      // 2. Nonexistent tool on server must throw NotFoundException
+      await expect(
+        mcpService.authorizeToolExecution(
+          adminTenant,
+          'mcp-neon-postgres',
+          'arbitrary_shell_exec',
+        ),
+      ).rejects.toThrow(NotFoundException);
+
+      // 3. Disabled tool must reject execution even for admins
+      await mcpService.toggleTool(adminTenant, 'mcp-neon-postgres', 'neon-tool-run-sql', {
+        isEnabled: false,
+      });
+      await expect(
+        mcpService.authorizeToolExecution(adminTenant, 'mcp-neon-postgres', 'postgres_run_query'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('EXPLOIT SEC-12: Blocks CGNAT, mDNS .local, IPv4-mapped ::ffff:127.0.0.1, URL credentials, and unsafe fetch headers', async () => {
+      const origEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = 'production';
+      try {
+        const mcpService = new McpService({} as any);
+        const clientManager = new McpClientManagerService(mcpService);
+
+        expect(() =>
+          mcpService.validateRemoteUrl('http://[::ffff:127.0.0.1]:8080/sse'),
+        ).toThrow(ForbiddenException);
+        expect(() =>
+          mcpService.validateRemoteUrl('http://100.64.0.5/internal-mcp'),
+        ).toThrow(ForbiddenException);
+        expect(() =>
+          mcpService.validateRemoteUrl('http://printer.local/mcp'),
+        ).toThrow(ForbiddenException);
+        expect(() =>
+          mcpService.validateRemoteUrl('https://user:secret@api.github.com/mcp'),
+        ).toThrow(BadRequestException);
+
+        const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+          ok: true,
+          status: 200,
+        } as any);
+
+        await clientManager.testConnection({
+          transport: 'SSE' as any,
+          endpointUrl: 'https://93.184.216.34/mcp/sse',
+          headers: {
+            Host: '169.254.169.254',
+            Cookie: 'session=stolen',
+            'X-Custom-Auth': 'safe-token',
+          },
+        });
+
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        const sentHeaders = (fetchSpy.mock.calls[0][1] as any).headers as Record<string, string>;
+        expect(sentHeaders.Host).toBeUndefined();
+        expect(sentHeaders.Cookie).toBeUndefined();
+        expect(sentHeaders['X-Custom-Auth']).toBe('safe-token');
+        fetchSpy.mockRestore();
+      } finally {
+        process.env.NODE_ENV = origEnv;
+      }
+    });
+
+    it('EXPLOIT SEC-13: Non-admin ENGINEERING member cannot ingest documents into EXECUTIVE or ALL scope', async () => {
+      const mockPrisma: any = { client: { document: { create: vi.fn() } } };
+      const docsService = new DocumentsService(
+        mockPrisma as any,
+        {} as any,
+        new DataSanitizerService(),
+      );
+      const engMember: TenantContext = {
+        organizationId: 'org-acme',
+        userId: 'eng-member-1',
+        userRole: UserRole.MEMBER,
+        userEmail: 'eng@acme.com',
+        department: Department.ENGINEERING,
+      };
+
+      await expect(
+        docsService.createDocument(engMember, {
+          title: 'Fake Executive Memo',
+          source: DocumentSource.NOTION,
+          department: Department.EXECUTIVE,
+          content: 'Fake compensation announcement',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+
+      await expect(
+        docsService.createDocument(engMember, {
+          title: 'Poisoned All-Hands Doc',
+          source: DocumentSource.NOTION,
+          department: Department.ALL,
+          content: 'Poisoned content targeting all departments',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(mockPrisma.client.document.create).not.toHaveBeenCalled();
     });
   });
 });

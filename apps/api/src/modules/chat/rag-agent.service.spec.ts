@@ -1181,6 +1181,7 @@ describe('RagAgentService', () => {
         };
 
         await service.scheduleBackgroundFaithfulnessJudge(
+          tenant.organizationId,
           'log-real-42',
           'ခွင့်ရက် ဘယ်နှစ်ရက် ရသလဲ?',
           'တစ်နှစ်လျှင် ခွင့်ရက် 20 ရက် ရရှိပါသည် [1]။',

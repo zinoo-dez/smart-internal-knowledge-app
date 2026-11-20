@@ -1160,6 +1160,7 @@ export class RagAgentService {
         });
         queryLogId = queryLog.id;
         this.scheduleBackgroundFaithfulnessJudge(
+          tenant.organizationId,
           queryLogId,
           sanitizedUserMessage,
           fullResponseText,
@@ -1728,6 +1729,7 @@ export class RagAgentService {
    * Zero SSE latency impact: runs cross-lingual NLI verification on sampled queries (100% on Myanmar synthesis).
    */
   public scheduleBackgroundFaithfulnessJudge(
+    organizationId: string,
     queryLogId: string,
     query: string,
     answerText: string,
@@ -1756,10 +1758,18 @@ export class RagAgentService {
         );
         if (!verdict) return;
 
-        await this.prisma.client.queryLog.update({
-          where: { id: queryLogId },
-          data: { faithfulnessScore: verdict.faithfulnessScore },
-        });
+        const repo = this.prisma.client.queryLog as any;
+        if (typeof repo?.updateMany === 'function') {
+          await repo.updateMany({
+            where: { id: queryLogId, organizationId },
+            data: { faithfulnessScore: verdict.faithfulnessScore },
+          });
+        } else {
+          await repo.update({
+            where: { id: queryLogId },
+            data: { faithfulnessScore: verdict.faithfulnessScore },
+          });
+        }
       } catch (err) {
         this.logger.debug(`Background faithfulness judge skipped: ${(err as Error).message}`);
       }

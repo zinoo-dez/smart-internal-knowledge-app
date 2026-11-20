@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { BookOpen, Check, Copy, ExternalLink, Highlighter, X } from 'lucide-react';
 import { DocumentCitation } from '@knowledge/shared';
 import { useLanguage } from '@/context/language-context';
+import { isSafeExternalUrl } from '@/lib/utils';
 
 interface CitationDrawerProps {
   citation: DocumentCitation | null;
@@ -68,16 +69,6 @@ export function CitationDrawer({ citation, initialSearchTerm, onClose }: Citatio
       navigator.clipboard.writeText(citation.snippet);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  const isSafeExternalUrl = (rawUrl?: string): boolean => {
-    if (!rawUrl) return false;
-    try {
-      const parsed = new URL(rawUrl);
-      return parsed.protocol === 'https:' || parsed.protocol === 'http:';
-    } catch {
-      return false;
     }
   };
 

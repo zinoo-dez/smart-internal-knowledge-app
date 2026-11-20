@@ -90,8 +90,8 @@ export class McpController {
     @CurrentTenant() tenant: TenantContext,
     @Body() dto: ExecuteMcpToolDto,
   ): Promise<ExecuteMcpToolResponse> {
-    // Verify server belongs to tenant
-    await this.mcpService.findServer(tenant, dto.serverId);
+    // Enforce server ownership, tool enablement, and HITL requireApproval RBAC gate
+    await this.mcpService.authorizeToolExecution(tenant, dto.serverId, dto.toolName);
     return this.mcpClientManager.executeTool(dto);
   }
 }

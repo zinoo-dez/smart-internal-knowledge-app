@@ -93,7 +93,18 @@ export class DocumentsService {
     tenant: TenantContext,
     dto: CreateDocumentDto,
   ): Promise<IngestDocumentResponse> {
-    const dept = dto.department || Department.ALL;
+    const memberDept = tenant.department || Department.ALL;
+    if (
+      tenant.userRole !== UserRole.ADMIN &&
+      dto.department &&
+      dto.department !== memberDept
+    ) {
+      throw new ForbiddenException(
+        'Non-admin members cannot ingest documents targeting another department or company-wide scope.',
+      );
+    }
+
+    const dept = dto.department || memberDept;
     const document = await this.prisma.client.document.create({
       data: {
         organizationId: tenant.organizationId,

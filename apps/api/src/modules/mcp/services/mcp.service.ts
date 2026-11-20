@@ -16,7 +16,7 @@ import {
   McpToolSummary,
   McpTransport,
   TenantContext,
-  UpdateMcpServerRequest,
+  UserRole,
 } from '@knowledge/shared';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -83,6 +83,17 @@ export class McpService implements OnModuleInit {
   /**
    * SSRF Protection: Validate remote URL against private/cloud metadata ranges
    */
+  private normalizeHostOrIp(rawHost: string): string {
+    const stripped = rawHost.toLowerCase().trim().replace(/^\[|\]$/g, '');
+    const v4MappedHex = stripped.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i);
+    if (v4MappedHex) {
+      const hi = parseInt(v4MappedHex[1], 16);
+      const lo = parseInt(v4MappedHex[2], 16);
+      return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+    }
+    return stripped.replace(/^::ffff:/, '');
+  }
+
   public validateRemoteUrl(rawUrl?: string): void {
     if (!rawUrl) return;
     try {
@@ -91,35 +102,31 @@ export class McpService implements OnModuleInit {
         throw new BadRequestException('Endpoint URL must use HTTP or HTTPS protocol.');
       }
 
-      const host = parsed.hostname.toLowerCase();
+      if (parsed.username || parsed.password) {
+        throw new BadRequestException('Endpoint URL must not contain embedded credentials.');
+      }
+
+      const host = this.normalizeHostOrIp(parsed.hostname);
       const isProduction = process.env.NODE_ENV === 'production';
 
-      // Disallow all cloud link-local metadata (169.254.0.0/16, AWS/GCP/Azure) in all environments
+      // Disallow all cloud link-local metadata (169.254.0.0/16, AWS/GCP/Azure) and mDNS in all environments
       if (
         host.startsWith('169.254.') ||
+        host.includes('169.254.') ||
         host === 'metadata.google.internal' ||
         host === 'instance-data' ||
-        host.endsWith('.internal')
+        host.endsWith('.internal') ||
+        host.endsWith('.local')
       ) {
         throw new ForbiddenException('Access to cloud instance metadata service is prohibited.');
       }
 
-      // In production, block private IP address ranges and loopback
+      // In production, block private IP address ranges, loopback, CGNAT, and IPv4-mapped IPv6 bypasses
       if (isProduction) {
         if (
           host === 'localhost' ||
-          host.startsWith('127.') ||
-          host === '0.0.0.0' ||
-          host === '::1' ||
-          host === '::' ||
-          host === '[::]' ||
-          host === '0' ||
-          host.startsWith('10.') ||
-          host.startsWith('192.168.') ||
-          /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host) ||
-          host.startsWith('fe80:') ||
-          host.startsWith('fc00:') ||
-          host.startsWith('fd00:')
+          host.endsWith('.localhost') ||
+          this.isBlockedIpAddress(host, true)
         ) {
           throw new ForbiddenException(
             `Access to internal or private IP address (${host}) is blocked by SSRF policy.`,
@@ -133,12 +140,13 @@ export class McpService implements OnModuleInit {
   }
 
   private isBlockedIpAddress(ip: string, isProduction: boolean): boolean {
-    const normalized = ip.toLowerCase().replace(/^::ffff:/, '');
+    const normalized = this.normalizeHostOrIp(ip);
     if (normalized.startsWith('169.254.')) return true;
     if (!isProduction) return false;
     return (
       normalized.startsWith('127.') ||
       normalized === '0.0.0.0' ||
+      normalized === '0' ||
       normalized === '::1' ||
       normalized === '::' ||
       normalized.startsWith('10.') ||
@@ -250,7 +258,7 @@ export class McpService implements OnModuleInit {
     discoveredTools: Array<{ name: string; description?: string; inputSchema: Record<string, unknown> }> = [],
   ): Promise<McpServerSummary> {
     if (dto.transport === McpTransport.SSE) {
-      this.validateRemoteUrl(dto.endpointUrl);
+      await this.validateRemoteUrlWithDns(dto.endpointUrl);
     }
 
     const encryptedSecrets = dto.envSecrets || dto.headers
@@ -378,6 +386,42 @@ export class McpService implements OnModuleInit {
   }
 
   /**
+   * Authorizes direct MCP tool execution for a tenant:
+   * 1. Verifies server ownership & CONNECTED status
+   * 2. Verifies the target tool exists on that specific server & isEnabled
+   * 3. Enforces Human-in-the-Loop approval gate (non-ADMIN members cannot directly bypass requireApproval)
+   */
+  async authorizeToolExecution(
+    tenant: TenantContext,
+    serverId: string,
+    toolName: string,
+  ): Promise<McpToolSummary> {
+    const server = await this.findServer(tenant, serverId);
+    if (server.status !== McpStatus.CONNECTED) {
+      throw new ForbiddenException(`MCP Server "${server.name}" is not active (${server.status}).`);
+    }
+
+    const tool = server.tools.find((t) => t.name === toolName);
+    if (!tool) {
+      throw new NotFoundException(`Tool "${toolName}" is not registered on server #${serverId}.`);
+    }
+
+    if (!tool.isEnabled) {
+      throw new ForbiddenException(
+        `MCP tool "${toolName}" has been disabled by your organization administrator.`,
+      );
+    }
+
+    if (tool.requireApproval && tenant.userRole !== UserRole.ADMIN) {
+      throw new ForbiddenException(
+        `MCP tool "${toolName}" is a mutating action requiring administrator authorization.`,
+      );
+    }
+
+    return { ...tool };
+  }
+
+  /**
    * Delete an MCP server
    */
   async deleteServer(tenant: TenantContext, serverId: string): Promise<{ success: boolean; message: string }> {
@@ -387,9 +431,16 @@ export class McpService implements OnModuleInit {
     }
 
     try {
-      await (this.prisma.client as any).mcpServer.delete({
-        where: { id: serverId },
-      });
+      const repo = (this.prisma.client as any).mcpServer;
+      if (typeof repo?.deleteMany === 'function') {
+        await repo.deleteMany({
+          where: { id: serverId, organizationId: tenant.organizationId },
+        });
+      } else {
+        await repo.delete({
+          where: { id: serverId },
+        });
+      }
     } catch {
       this.memoryServers.delete(`${tenant.organizationId}:${serverId}`);
       this.memoryServers.delete(serverId);
