@@ -118,7 +118,9 @@ export class RagAgentService {
   ) {
     this.router = modelRouterService || new ModelRouterService();
     this.promptSecurity = promptSecurityService || new PromptSecurityService();
-    this.grounding = groundingEvaluatorService || new GroundingEvaluatorService();
+    this.grounding =
+      groundingEvaluatorService ||
+      new GroundingEvaluatorService(this.router, this.promptSecurity);
   }
 
   // --- Backwards-compatible public façades delegating to focused services ---
@@ -1157,6 +1159,12 @@ export class RagAgentService {
           },
         });
         queryLogId = queryLog.id;
+        this.scheduleBackgroundFaithfulnessJudge(
+          queryLogId,
+          sanitizedUserMessage,
+          fullResponseText,
+          citations,
+        );
       } catch (err) {
         this.logger.debug(`Prisma queryLog.create offline: ${(err as Error).message}`);
       }
@@ -1713,6 +1721,57 @@ export class RagAgentService {
     }
 
     return `${header}\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``;
+  }
+
+  /**
+   * Non-blocking async LLM-as-a-Judge faithfulness refinement executed after QueryLog creation.
+   * Zero SSE latency impact: runs cross-lingual NLI verification on sampled queries (100% on Myanmar synthesis).
+   */
+  public scheduleBackgroundFaithfulnessJudge(
+    queryLogId: string,
+    query: string,
+    answerText: string,
+    citations: DocumentCitation[],
+    options?: { forceRun?: boolean; overrideModel?: any | null },
+  ): Promise<void> | void {
+    if (!options?.forceRun) {
+      if (process.env.NODE_ENV === 'test') return;
+      if (!citations || citations.length === 0) return;
+      if (!queryLogId || queryLogId.startsWith('log-')) return;
+
+      const configuredRate = Number(process.env.FAITHFULNESS_JUDGE_SAMPLE_RATE ?? '0.25');
+      if (Number.isNaN(configuredRate) || configuredRate <= 0) return;
+
+      const effectiveRate = this.isMyanmarQuery(query) ? 1.0 : configuredRate;
+      if (Math.random() > effectiveRate) return;
+    }
+
+    const executeJudge = async () => {
+      try {
+        const verdict = await this.grounding.evaluateWithLlmJudge(
+          query,
+          answerText,
+          citations,
+          options?.overrideModel,
+        );
+        if (!verdict) return;
+
+        await this.prisma.client.queryLog.update({
+          where: { id: queryLogId },
+          data: { faithfulnessScore: verdict.faithfulnessScore },
+        });
+      } catch (err) {
+        this.logger.debug(`Background faithfulness judge skipped: ${(err as Error).message}`);
+      }
+    };
+
+    if (options?.forceRun) {
+      return executeJudge();
+    }
+
+    setImmediate(() => {
+      void executeJudge();
+    });
   }
 
   private async streamSyntheticResponse(

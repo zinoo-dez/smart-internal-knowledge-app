@@ -21,7 +21,7 @@ export class PromptSecurityService {
    * is neutralized to prevent delimiter breakout (direct & indirect prompt injection).
    */
   private static readonly RESERVED_XML_TAGS =
-    /<(\/?\s*(?:system_identity|strict_operating_rules|few_shot_examples|available_mcp_tools|security_canary|knowledge_base_context|user_query|conversation_history|follow_up_suggestions|tool_output)(?:\s[^>]*)?)>/gi;
+    /<(\/?\s*(?:system_identity|strict_operating_rules|few_shot_examples|available_mcp_tools|security_canary|knowledge_base_context|user_query|conversation_history|follow_up_suggestions|tool_output|meeting_transcript|meeting_metadata|retrieved_sources|assistant_answer)(?:\s[^>]*)?)>/gi;
 
   /**
    * Patterns indicative of indirect prompt injection directives hidden inside documents.

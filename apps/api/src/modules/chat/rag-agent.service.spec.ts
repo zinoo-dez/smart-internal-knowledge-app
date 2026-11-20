@@ -1164,6 +1164,44 @@ describe('RagAgentService', () => {
         expect(explicitPlan.retrievalTopK).toBe(8);
         expect(explicitPlan.maxSubQueries).toBe(3);
       });
+
+      it('runs async LLM-as-a-Judge refinement via scheduleBackgroundFaithfulnessJudge and updates QueryLog', async () => {
+        mockPrisma.client.queryLog.update = vi.fn().mockResolvedValue({ id: 'log-real-42' });
+        const mockJudgeModel = {
+          withStructuredOutput: vi.fn().mockReturnValue({
+            invoke: vi.fn().mockResolvedValue({
+              faithfulnessScore: 0.94,
+              supportedClaims: 2,
+              unsupportedClaims: 0,
+              invalidCitationIndices: [],
+              verdict: 'FAITHFUL',
+              rationale: 'Verified cross-lingual Myanmar claim against English chunk.',
+            }),
+          }),
+        };
+
+        await service.scheduleBackgroundFaithfulnessJudge(
+          'log-real-42',
+          'ခွင့်ရက် ဘယ်နှစ်ရက် ရသလဲ?',
+          'တစ်နှစ်လျှင် ခွင့်ရက် 20 ရက် ရရှိပါသည် [1]။',
+          [
+            {
+              chunkId: 'c1',
+              documentId: 'd1',
+              documentTitle: 'Leave Policy',
+              source: DocumentSource.FILE_UPLOAD,
+              snippet: 'Employees receive 20 days annual paid leave.',
+              relevanceScore: 0.95,
+            },
+          ],
+          { forceRun: true, overrideModel: mockJudgeModel },
+        );
+
+        expect(mockPrisma.client.queryLog.update).toHaveBeenCalledWith({
+          where: { id: 'log-real-42' },
+          data: { faithfulnessScore: 0.94 },
+        });
+      });
     });
   });
 });
