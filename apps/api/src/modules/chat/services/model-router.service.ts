@@ -107,7 +107,7 @@ export class ModelRouterService {
    * failing over across Gemini, Claude, and OpenAI if rate limits or errors occur.
    */
   public async invokeWithCircuitBreaker(
-    systemPrompt: string,
+    systemPrompt: string | SystemMessage,
     userPrompt: string,
     preferredProvider?: string,
     preferredModel?: string,
@@ -123,8 +123,12 @@ export class ModelRouterService {
 
       if (model) {
         try {
+          const systemMessage =
+            systemPrompt instanceof SystemMessage
+              ? systemPrompt
+              : this.buildProviderSystemMessage(systemPrompt, activeProvider);
           const response = await model.invoke([
-            new SystemMessage(systemPrompt),
+            systemMessage,
             new HumanMessage(userPrompt),
           ]);
           const content = response.content?.toString() || '';
@@ -141,6 +145,30 @@ export class ModelRouterService {
     }
 
     return { content: '', providerUsed: 'FALLBACK', modelUsed: 'deterministic-synthesizer' };
+  }
+
+  private buildProviderSystemMessage(systemPrompt: string, provider: string): SystemMessage {
+    if (provider.toUpperCase() === AIModelProvider.CLAUDE) {
+      const dynamicBoundary = systemPrompt.indexOf('<knowledge_base_context>');
+      if (dynamicBoundary > 0) {
+        const staticPrefix = systemPrompt.slice(0, dynamicBoundary).trimEnd();
+        const dynamicPayload = systemPrompt.slice(dynamicBoundary);
+        return new SystemMessage({
+          content: [
+            {
+              type: 'text',
+              text: staticPrefix,
+              cache_control: { type: 'ephemeral' },
+            } as any,
+            {
+              type: 'text',
+              text: dynamicPayload,
+            },
+          ],
+        });
+      }
+    }
+    return new SystemMessage(systemPrompt);
   }
 
   /**

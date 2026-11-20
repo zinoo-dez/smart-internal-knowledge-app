@@ -213,9 +213,17 @@ export default function ChatPage() {
     }
   };
 
-  const handleSend = async (questionText?: string) => {
+  const handleSend = async (
+    questionText?: string,
+    overrideMode?: 'chat' | 'tools' | 'research',
+  ) => {
     const query = (questionText || input).trim();
     if (!query || isStreaming) return;
+
+    const effectiveMode = overrideMode || activeMode;
+    if (overrideMode && overrideMode !== activeMode) {
+      setActiveMode(overrideMode);
+    }
 
     setInput('');
     const userMsgId = `user-${Date.now()}`;
@@ -244,7 +252,7 @@ export default function ChatPage() {
           modelProvider: selectedModel.provider,
           modelName: selectedModel.modelName,
           conversationId: activeConversationId || undefined,
-          mode: activeMode,
+          mode: effectiveMode,
           thinkingLevel,
         }),
       });
@@ -358,11 +366,19 @@ export default function ChatPage() {
     }
   };
 
-  const promptSuggestions = [
+  const promptSuggestions: Array<{
+    icon: React.ReactNode;
+    text: string;
+    mode?: 'chat' | 'tools' | 'research';
+  }> = [
     { icon: <Database className="w-4 h-4" aria-hidden="true" />, text: t.suggestionAws },
     { icon: <Shield className="w-4 h-4" aria-hidden="true" />, text: t.suggestionVpn },
     { icon: <Calendar className="w-4 h-4" aria-hidden="true" />, text: t.suggestionLeave },
-    { icon: <Cpu className="w-4 h-4" aria-hidden="true" />, text: t.suggestionDbLive },
+    {
+      icon: <Cpu className="w-4 h-4" aria-hidden="true" />,
+      text: t.suggestionDbLive,
+      mode: 'tools',
+    },
     { icon: <Sparkles className="w-4 h-4" aria-hidden="true" />, text: t.suggestionMyanmarLeave },
   ];
 
@@ -482,7 +498,7 @@ export default function ChatPage() {
                     key={idx}
                     type="button"
                     aria-label={`Suggested inquiry: ${item.text}`}
-                    onClick={() => handleSend(item.text)}
+                    onClick={() => handleSend(item.text, item.mode)}
                     className="w-full flex items-center gap-3 py-2.5 px-3 rounded-xl bg-slate-50/70 hover:bg-slate-100 sm:bg-transparent border border-slate-200/50 sm:border-transparent text-left transition-all text-slate-700 hover:text-slate-900 group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 min-h-[44px]"
                   >
                     <span
