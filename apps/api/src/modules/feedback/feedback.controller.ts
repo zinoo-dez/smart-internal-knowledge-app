@@ -9,9 +9,7 @@ import {
 } from '@nestjs/common';
 import {
   AnalyticsSummaryResponse,
-  AssignGapRequest,
   KnowledgeGapSummaryResponse,
-  ResolveGapRequest,
   TenantContext,
   UserRole,
 } from '@knowledge/shared';
@@ -21,6 +19,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentTenant } from '../auth/decorators/tenant-context.decorator';
 import { FeedbackService } from './feedback.service';
 import { SubmitFeedbackDto } from './dto/submit-feedback.dto';
+import { AssignGapDto, ResolveGapDto } from './dto/knowledge-gap.dto';
 
 @Controller('api/feedback')
 @UseGuards(ClerkAuthGuard, RolesGuard)
@@ -66,7 +65,7 @@ export class FeedbackController {
   async resolveKnowledgeGap(
     @CurrentTenant() tenant: TenantContext,
     @Param('id') id: string,
-    @Body() body: ResolveGapRequest,
+    @Body() body: ResolveGapDto,
   ): Promise<{ success: boolean }> {
     return this.feedbackService.resolveKnowledgeGap(tenant, id, body.resolutionNote);
   }
@@ -76,7 +75,7 @@ export class FeedbackController {
   async assignKnowledgeGap(
     @CurrentTenant() tenant: TenantContext,
     @Param('id') id: string,
-    @Body() body: AssignGapRequest,
+    @Body() body: AssignGapDto,
   ): Promise<{ success: boolean }> {
     return this.feedbackService.assignKnowledgeGap(tenant, id, body.assignedTo);
   }

@@ -130,4 +130,30 @@ describe('TenantPrismaExtension', () => {
       organizationId: mockOrgId,
     });
   });
+
+  it('should NOT include ChatMessageRecord (lacks organizationId column) and should guard findUnique/update/delete', async () => {
+    expect(TENANT_SCOPED_MODELS).not.toContain('ChatMessageRecord');
+
+    let interceptedQuery: any;
+    const mockClient = {
+      $extends: vi.fn().mockImplementation((config: any) => {
+        interceptedQuery = config.query.$allModels.$allOperations;
+        return { client: true };
+      }),
+    } as any;
+
+    getTenantPrisma(mockClient, mockOrgId);
+
+    for (const operation of ['findUnique', 'update', 'delete']) {
+      const mockNextQuery = vi.fn().mockResolvedValue({ id: 'doc-1' });
+      const args = { where: { id: 'doc-1' } };
+      await interceptedQuery({
+        model: 'Document',
+        operation,
+        args,
+        query: mockNextQuery,
+      });
+      expect(args.where).toEqual({ id: 'doc-1', organizationId: mockOrgId });
+    }
+  });
 });

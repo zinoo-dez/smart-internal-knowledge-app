@@ -1,7 +1,9 @@
 import { PrismaClient } from '@knowledge/database';
 
 /**
- * Tenant-scoped models that require strict organizationId boundary enforcement.
+ * Tenant-scoped models that own an explicit organizationId column
+ * and require strict tenant boundary enforcement.
+ * Note: ChatMessageRecord is scoped transitively via Conversation.organizationId.
  */
 export const TENANT_SCOPED_MODELS = [
   'Document',
@@ -11,14 +13,13 @@ export const TENANT_SCOPED_MODELS = [
   'SupportTicket',
   'AuditLog',
   'Conversation',
-  'ChatMessageRecord',
   'User',
   'McpServer',
 ];
 
 /**
  * Creates a tenant-isolated Prisma client extension enforcing organizationId
- * on all reads, mutations, and bulk operations to prevent IDOR and cross-tenant leakage.
+ * on reads, unique lookups, mutations, and bulk operations to prevent IDOR and cross-tenant leakage.
  */
 export function getTenantPrisma(client: PrismaClient, organizationId: string) {
   if (!organizationId) {
@@ -31,16 +32,23 @@ export function getTenantPrisma(client: PrismaClient, organizationId: string) {
       $allModels: {
         async $allOperations({ model, operation, args, query }: any) {
           if (model && TENANT_SCOPED_MODELS.includes(model)) {
-            // Read & Search Operations
+            // Read, Search & Unique Lookups
             if (
-              ['findMany', 'findFirst', 'findFirstOrThrow', 'count', 'aggregate', 'groupBy'].includes(
-                operation,
-              )
+              [
+                'findMany',
+                'findFirst',
+                'findFirstOrThrow',
+                'findUnique',
+                'findUniqueOrThrow',
+                'count',
+                'aggregate',
+                'groupBy',
+              ].includes(operation)
             ) {
               args.where = { ...(args.where || {}), organizationId };
             }
 
-            // Mutation Operations
+            // Create Operations
             if (operation === 'create' && args.data) {
               args.data = { ...args.data, organizationId };
             }
@@ -53,7 +61,15 @@ export function getTenantPrisma(client: PrismaClient, organizationId: string) {
               }
             }
 
-            if (['updateMany', 'deleteMany'].includes(operation)) {
+            if (operation === 'upsert') {
+              args.where = { ...(args.where || {}), organizationId };
+              if (args.create) {
+                args.create = { ...args.create, organizationId };
+              }
+            }
+
+            // Update & Delete Operations (single & bulk)
+            if (['update', 'updateMany', 'delete', 'deleteMany'].includes(operation)) {
               args.where = { ...(args.where || {}), organizationId };
             }
           }

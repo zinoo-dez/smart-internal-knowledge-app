@@ -172,16 +172,24 @@ export class HybridSearchService {
           where: {
             organizationId: tenant.organizationId,
             content: { contains: dto.query, mode: 'insensitive' },
-            OR: [
-              { department: 'ALL' as any },
-              { department: userDept as any },
-            ],
+            ...(isAdmin
+              ? {}
+              : {
+                  OR: [{ department: 'ALL' as any }, { department: userDept as any }],
+                }),
           },
           include: { document: true },
-          take: topK,
+          take: Math.max(topK * 3, 15),
         });
 
-        const citations: DocumentCitation[] = fallbackChunks.map((c) => ({
+        // Strict fail-closed ABAC & Ethical Wall filtering on fallback results
+        const authorizedChunks = fallbackChunks
+          .filter((c) =>
+            this.checkAccess(tenant, (c.metadata as Record<string, unknown> | null) ?? null),
+          )
+          .slice(0, topK);
+
+        const citations: DocumentCitation[] = authorizedChunks.map((c) => ({
           chunkId: c.id,
           documentId: c.documentId,
           documentTitle: c.document.title,

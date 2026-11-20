@@ -61,18 +61,28 @@ export class FeedbackService {
   async getAnalyticsSummary(tenant: TenantContext): Promise<AnalyticsSummaryResponse> {
     const orgId = tenant.organizationId;
 
+    const feedbackModel = this.prisma.client.feedback as any;
+    const feedbackStatsPromise =
+      typeof feedbackModel.groupBy === 'function'
+        ? feedbackModel.groupBy({
+            by: ['type'],
+            where: { organizationId: orgId },
+            _count: { _all: true },
+          })
+        : this.prisma.client.feedback.findMany({
+            where: { organizationId: orgId },
+            select: { type: true },
+          });
+
     // Run parallel metrics aggregation
-    const [totalQueries, totalDocuments, tokensAgg, feedbacks, topQueriesRaw, faithfulnessAgg] = await Promise.all([
+    const [totalQueries, totalDocuments, tokensAgg, feedbackRaw, topQueriesRaw, faithfulnessAgg] = await Promise.all([
       this.prisma.client.queryLog.count({ where: { organizationId: orgId } }),
       this.prisma.client.document.count({ where: { organizationId: orgId } }),
       this.prisma.client.queryLog.aggregate({
         where: { organizationId: orgId },
         _sum: { totalTokens: true },
       }),
-      this.prisma.client.feedback.findMany({
-        where: { organizationId: orgId },
-        select: { type: true },
-      }),
+      feedbackStatsPromise,
       this.prisma.client.queryLog.groupBy({
         by: ['query'],
         where: { organizationId: orgId },
@@ -86,10 +96,25 @@ export class FeedbackService {
       }),
     ]);
 
-    const thumbsUpCount = feedbacks.filter((f) => (f.type as unknown as string) === 'THUMBS_UP').length;
-    const satisfactionRate = feedbacks.length > 0
-      ? Math.round((thumbsUpCount / feedbacks.length) * 100)
-      : 100;
+    let thumbsUpCount = 0;
+    let totalFeedbackCount = 0;
+    if (Array.isArray(feedbackRaw) && feedbackRaw.length > 0 && '_count' in feedbackRaw[0]) {
+      for (const row of feedbackRaw as Array<{ type: string; _count: { _all: number } }>) {
+        const count = row._count?._all ?? 0;
+        totalFeedbackCount += count;
+        if (String(row.type) === 'THUMBS_UP') {
+          thumbsUpCount += count;
+        }
+      }
+    } else if (Array.isArray(feedbackRaw)) {
+      totalFeedbackCount = feedbackRaw.length;
+      thumbsUpCount = feedbackRaw.filter(
+        (f: { type: unknown }) => String(f.type) === 'THUMBS_UP',
+      ).length;
+    }
+
+    const satisfactionRate =
+      totalFeedbackCount > 0 ? Math.round((thumbsUpCount / totalFeedbackCount) * 100) : 100;
 
     const avgScore = faithfulnessAgg?._avg?.faithfulnessScore;
     const faithfulnessScore = avgScore !== null && avgScore !== undefined

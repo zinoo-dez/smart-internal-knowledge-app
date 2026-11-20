@@ -1,9 +1,11 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import {
+  ClearanceLevel,
   Department,
   DocumentCitation,
   SemanticCacheStats,
   TenantContext,
+  UserRole,
 } from '@knowledge/shared';
 import Redis from 'ioredis';
 
@@ -15,6 +17,7 @@ export interface SemanticCacheEntry {
   citations: DocumentCitation[];
   createdAt: number;
   department: Department;
+  clearanceLevel?: ClearanceLevel;
 }
 
 export interface SemanticCacheMatch {
@@ -29,7 +32,7 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SemanticCacheService.name);
 
   // In-memory fallback / local fast-path store
-  // Key format: `${organizationId}:${department}`
+  // Key format: `${organizationId}:${department}:${clearanceLevel}`
   private cacheStore = new Map<string, SemanticCacheEntry[]>();
 
   // Distributed Redis client (optional, auto-instantiated if REDIS_URL exists)
@@ -59,12 +62,14 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
           rawUrl.includes('upstash.io') && rawUrl.startsWith('redis://')
             ? rawUrl.replace('redis://', 'rediss://')
             : rawUrl;
+        const rejectUnauthorized = process.env.REDIS_TLS_REJECT_UNAUTHORIZED !== 'false';
+
         this.redisClient = new Redis(redisUrl, {
           maxRetriesPerRequest: 1,
           connectTimeout: 2000,
           retryStrategy: (times) => (times > 3 ? null : Math.min(times * 200, 1000)),
           lazyConnect: true,
-          tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
+          tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized } : undefined,
         });
 
         this.redisClient.on('connect', () => {
@@ -74,16 +79,22 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
 
         this.redisClient.on('error', (err: Error) => {
           this.isRedisConnected = false;
-          this.logger.warn(`Redis Semantic Cache disconnected (${err.message}). Using local in-memory fallback.`);
+          this.logger.warn(
+            `Redis Semantic Cache disconnected (${err.message}). Using local in-memory fallback.`,
+          );
         });
 
         this.redisClient.connect().catch((err: Error) => {
           this.isRedisConnected = false;
-          this.logger.warn(`Initial Redis connection skipped (${err.message}). Running in-memory mode.`);
+          this.logger.warn(
+            `Initial Redis connection skipped (${err.message}). Running in-memory mode.`,
+          );
         });
       } catch (err: unknown) {
         const error = err as Error;
-        this.logger.warn(`Could not initialize Redis client (${error.message}). Running in-memory mode.`);
+        this.logger.warn(
+          `Could not initialize Redis client (${error.message}). Running in-memory mode.`,
+        );
       }
     }
   }
@@ -99,8 +110,43 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Reusable Redis connectivity health probe — avoids connection churn from HealthController.
+   */
+  async ping(): Promise<'connected' | 'offline' | 'unconfigured'> {
+    if (!this.redisClient) {
+      return process.env.REDIS_URL ? 'offline' : 'unconfigured';
+    }
+    try {
+      const pong = await this.redisClient.ping();
+      return pong === 'PONG' ? 'connected' : 'offline';
+    } catch {
+      return 'offline';
+    }
+  }
+
+  private resolveEffectiveClearance(tenant: TenantContext): ClearanceLevel {
+    if (tenant.clearanceLevel) {
+      return tenant.clearanceLevel;
+    }
+    return tenant.userRole === UserRole.ADMIN
+      ? ClearanceLevel.RESTRICTED
+      : ClearanceLevel.INTERNAL;
+  }
+
+  private hasFineGrainedMatterScope(tenant: TenantContext): boolean {
+    return Boolean(
+      (tenant.matterIds && tenant.matterIds.length > 0) ||
+        (tenant.deniedMatterIds && tenant.deniedMatterIds.length > 0),
+    );
+  }
+
+  private buildPartitionKey(orgId: string, dept: Department, clearance: ClearanceLevel): string {
+    return `${orgId}:${dept}:${clearance}`;
+  }
+
+  /**
    * Looks up query in the semantic cache using Cosine Similarity on embedding vectors.
-   * Enforces strict multi-tenant and department ACL isolation across Redis / memory.
+   * Enforces strict multi-tenant, department, clearance-level, and ethical wall ABAC isolation.
    */
   async get(
     tenant: TenantContext,
@@ -108,19 +154,29 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
     queryVector: number[],
   ): Promise<SemanticCacheMatch | null> {
     const orgId = tenant.organizationId;
-    const dept = tenant.department || Department.ALL;
-    const partitionKey = `${orgId}:${dept}`;
+
+    // Zero-leakage ABAC guardrail: bypass shared cache when matter-level ethical walls apply
+    if (this.hasFineGrainedMatterScope(tenant)) {
+      this.recordMiss(orgId);
+      return null;
+    }
 
     if (!queryVector || queryVector.length === 0) {
       this.recordMiss(orgId);
       return null;
     }
 
-    const entries = await this.loadPartitionEntries(partitionKey);
+    const dept = tenant.department || Department.ALL;
+    const clearance = this.resolveEffectiveClearance(tenant);
+    const partitionKey = this.buildPartitionKey(orgId, dept, clearance);
 
-    // Also check company-wide partition (Department.ALL) if user has specific department
+    const entries = [...(await this.loadPartitionEntries(partitionKey))];
+
+    // Also check company-wide partition at the exact same or PUBLIC clearance level
     if (dept !== Department.ALL) {
-      const allEntries = await this.loadPartitionEntries(`${orgId}:${Department.ALL}`);
+      const allEntries = await this.loadPartitionEntries(
+        this.buildPartitionKey(orgId, Department.ALL, clearance),
+      );
       entries.push(...allEntries);
     }
 
@@ -168,13 +224,19 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
     answer: string,
     citations: DocumentCitation[],
   ): Promise<void> {
+    // Do not cache responses scoped by matter-specific ethical walls
+    if (this.hasFineGrainedMatterScope(tenant)) {
+      return;
+    }
+
     if (!queryVector || queryVector.length === 0 || !answer) {
       return;
     }
 
     const orgId = tenant.organizationId;
     const dept = tenant.department || Department.ALL;
-    const partitionKey = `${orgId}:${dept}`;
+    const clearance = this.resolveEffectiveClearance(tenant);
+    const partitionKey = this.buildPartitionKey(orgId, dept, clearance);
 
     const newEntry: SemanticCacheEntry = {
       id: `cache-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -184,6 +246,7 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
       citations,
       createdAt: Date.now(),
       department: dept,
+      clearanceLevel: clearance,
     };
 
     // 1. Update in-memory store
@@ -211,6 +274,7 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Invalidates cached entries when documents are ingested, updated, or deleted.
+   * Uses non-blocking Redis SCAN cursor iteration instead of blocking KEYS.
    */
   async invalidate(organizationId: string, department?: Department): Promise<number> {
     let evictedCount = 0;
@@ -224,15 +288,39 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // Invalidate in Redis if connected
+    // Invalidate in Redis using non-blocking SCAN (falls back to keys only on minimal mock clients)
     if (this.isRedisConnected && this.redisClient) {
       try {
-        const pattern = department && department !== Department.ALL
-          ? `semcache:${organizationId}:${department}`
-          : `semcache:${organizationId}:*`;
-        const keys = await this.redisClient.keys(pattern);
-        if (keys.length > 0) {
-          await this.redisClient.del(...keys);
+        const pattern =
+          department && department !== Department.ALL
+            ? `semcache:${organizationId}:${department}:*`
+            : `semcache:${organizationId}:*`;
+
+        const matchedKeys: string[] = [];
+        if (typeof this.redisClient.scan === 'function') {
+          let cursor = '0';
+          do {
+            const [nextCursor, batch] = await this.redisClient.scan(
+              cursor,
+              'MATCH',
+              pattern,
+              'COUNT',
+              100,
+            );
+            cursor = nextCursor;
+            if (Array.isArray(batch) && batch.length > 0) {
+              matchedKeys.push(...batch);
+            }
+          } while (cursor !== '0');
+        } else if (typeof this.redisClient.keys === 'function') {
+          const fallbackKeys = await this.redisClient.keys(pattern);
+          if (fallbackKeys?.length) {
+            matchedKeys.push(...fallbackKeys);
+          }
+        }
+
+        if (matchedKeys.length > 0) {
+          await this.redisClient.del(...matchedKeys);
         }
       } catch (err: unknown) {
         const error = err as Error;
@@ -316,7 +404,6 @@ export class SemanticCacheService implements OnModuleInit, OnModuleDestroy {
             })
             .filter((e): e is SemanticCacheEntry => e !== null);
 
-          // Update local memory cache with Redis contents for ultra-fast local hits
           this.cacheStore.set(partitionKey, parsed);
           return parsed;
         }

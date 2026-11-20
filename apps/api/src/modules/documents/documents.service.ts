@@ -19,6 +19,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { IngestionProcessor } from './workers/ingestion.processor';
+import { IngestionQueueService } from './workers/ingestion-queue.service';
 import { extractTextFromPdf } from './utils/pdf-parser';
 import { DataSanitizerService } from './services/data-sanitizer.service';
 import { AuditLogService } from '../audit/audit-log.service';
@@ -34,6 +35,7 @@ export class DocumentsService {
     private readonly dataSanitizer: DataSanitizerService,
     @Optional() private readonly auditLogService?: AuditLogService,
     @Optional() private readonly semanticCacheService?: SemanticCacheService,
+    @Optional() private readonly ingestionQueueService?: IngestionQueueService,
   ) {}
 
   async createDocumentFromFile(
@@ -55,30 +57,24 @@ export class DocumentsService {
 
     const filename = (file.originalname || '').toLowerCase();
 
-    // Explicitly reject known executable & script extensions regardless of MIME spoofing
-    const dangerousExtensions = [
-      '.exe',
-      '.sh',
-      '.bat',
-      '.cmd',
-      '.php',
-      '.phtml',
-      '.py',
-      '.rb',
-      '.pl',
-      '.bin',
-      '.elf',
-      '.dll',
-      '.msi',
-    ];
-    if (dangerousExtensions.some((ext) => filename.endsWith(ext))) {
-      throw new BadRequestException(`Executable or script file "${file.originalname}" is strictly prohibited.`);
+    // Strict allowlist of safe enterprise knowledge document formats
+    const allowedExtensions = ['.pdf', '.md', '.markdown', '.txt', '.csv', '.json', '.docx'];
+    const hasAllowedExt = allowedExtensions.some((ext) => filename.endsWith(ext));
+    if (!hasAllowedExt) {
+      throw new BadRequestException(
+        `Unsupported or dangerous file type "${file.originalname}". Allowed formats: PDF, Markdown, TXT, CSV, JSON, DOCX.`,
+      );
     }
 
     const docTitle = title || file.originalname || 'Uploaded Document';
-    let content = '';
+    let content: string;
 
-    if (file.mimetype === 'application/pdf' || file.originalname.endsWith('.pdf')) {
+    if (file.mimetype === 'application/pdf' || filename.endsWith('.pdf')) {
+      // Verify PDF magic header (%PDF-) when real binary payload is provided
+      const header = file.buffer?.subarray(0, 5).toString('ascii') || '';
+      if (file.buffer && file.buffer.length >= 5 && !header.startsWith('%PDF-') && process.env.NODE_ENV === 'production') {
+        throw new BadRequestException('Invalid PDF file signature (magic-byte verification failed).');
+      }
       content = await extractTextFromPdf(file.buffer);
     } else {
       content = file.buffer.toString('utf-8');
@@ -132,25 +128,33 @@ export class DocumentsService {
       await this.semanticCacheService.invalidate(tenant.organizationId, dept);
     }
 
-    // Execute ingestion asynchronously in background without blocking response
-    setImmediate(async () => {
-      try {
-        await this.ingestionProcessor.processDocument({
-          documentId: document.id,
-          organizationId: tenant.organizationId,
-          content: sanitizedContent,
-          department: dept,
-        });
-      } catch (err: unknown) {
-        const error = err as Error;
-        this.logger.error(`Background ingestion job ${jobId} failed: ${error.message}`);
-      }
-    });
+    // Enqueue ingestion via Hybrid BullMQ (falls back cleanly to inline background job)
+    const ingestionPayload = {
+      documentId: document.id,
+      organizationId: tenant.organizationId,
+      content: sanitizedContent,
+      department: dept,
+    };
+
+    let resolvedJobId = jobId;
+    if (this.ingestionQueueService) {
+      const queued = await this.ingestionQueueService.enqueueDocument(ingestionPayload);
+      resolvedJobId = queued.jobId;
+    } else {
+      setImmediate(async () => {
+        try {
+          await this.ingestionProcessor.processDocument(ingestionPayload);
+        } catch (err: unknown) {
+          const error = err as Error;
+          this.logger.error(`Background ingestion job ${jobId} failed: ${error.message}`);
+        }
+      });
+    }
 
     return {
       documentId: document.id,
       status: IngestionStatus.PENDING,
-      jobId,
+      jobId: resolvedJobId,
       message: 'Document accepted for ingestion and queued for embedding generation',
     };
   }

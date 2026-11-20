@@ -20,11 +20,15 @@ export class RerankService {
       return candidates || [];
     }
 
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
       const rerankPromise = this.executeCrossEncoderScoring(query, candidates, topK);
 
       const timeoutPromise = new Promise<DocumentCitation[]>((_, reject) => {
-        setTimeout(() => reject(new Error('Cross-encoder reranking timeout (> 800ms)')), timeoutMs);
+        timeoutHandle = setTimeout(
+          () => reject(new Error('Cross-encoder reranking timeout (> 800ms)')),
+          timeoutMs,
+        );
       });
 
       return await Promise.race([rerankPromise, timeoutPromise]);
@@ -32,6 +36,10 @@ export class RerankService {
       const error = err as Error;
       this.logger.warn(`Reranker fallback triggered: ${error.message}. Returning raw RRF candidates.`);
       return candidates.slice(0, topK);
+    } finally {
+      if (timeoutHandle !== undefined) {
+        clearTimeout(timeoutHandle);
+      }
     }
   }
 

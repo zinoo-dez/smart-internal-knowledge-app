@@ -1,7 +1,7 @@
-import { Controller, Get, HttpStatus, Logger, Res } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Logger, Optional, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
-import Redis from 'ioredis';
+import { SemanticCacheService } from '../search/semantic-cache.service';
 
 export interface HealthCheckResult {
   status: 'healthy' | 'degraded' | 'unhealthy';
@@ -22,7 +22,10 @@ export interface HealthCheckResult {
 export class HealthController {
   private readonly logger = new Logger(HealthController.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly semanticCacheService?: SemanticCacheService,
+  ) {}
 
   @Get(['health', 'api/health'])
   async checkHealth(@Res() res: Response): Promise<Response> {
@@ -53,35 +56,22 @@ export class HealthController {
       result.status = 'unhealthy';
     }
 
-    // 2. Probe Redis Connectivity
-    const rawRedisUrl = process.env.REDIS_URL;
-    if (rawRedisUrl) {
-      try {
-        const redisUrl =
-          rawRedisUrl.includes('upstash.io') && rawRedisUrl.startsWith('redis://')
-            ? rawRedisUrl.replace('redis://', 'rediss://')
-            : rawRedisUrl;
-        const tempRedis = new Redis(redisUrl, {
-          connectTimeout: 2000,
-          maxRetriesPerRequest: 0,
-          lazyConnect: true,
-          tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
-        });
-        await tempRedis.connect();
-        const pingRes = await tempRedis.ping();
-        await tempRedis.quit();
-
-        result.services.redis = pingRes === 'PONG' ? 'connected' : 'offline';
-      } catch (err: unknown) {
-        result.services.redis = 'offline';
-        // Redis being offline is degraded, not catastrophic for API
-        if (result.status === 'healthy') {
-          result.status = 'degraded';
-        }
+    // 2. Probe Redis Connectivity via shared singleton SemanticCacheService client (no connection churn)
+    if (this.semanticCacheService && typeof this.semanticCacheService.ping === 'function') {
+      const redisStatus = await this.semanticCacheService.ping();
+      result.services.redis = redisStatus;
+      if (redisStatus === 'offline' && result.status === 'healthy') {
+        result.status = 'degraded';
+      }
+    } else if (process.env.REDIS_URL) {
+      result.services.redis = 'offline';
+      if (result.status === 'healthy') {
+        result.status = 'degraded';
       }
     }
 
-    const statusCode = result.status === 'unhealthy' ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.OK;
+    const statusCode =
+      result.status === 'unhealthy' ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.OK;
     return res.status(statusCode).json(result);
   }
 }

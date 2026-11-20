@@ -4,8 +4,11 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
+import * as dns from 'dns/promises';
+import * as net from 'net';
 import {
   CreateMcpServerRequest,
   McpServerSummary,
@@ -18,7 +21,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
-export class McpService {
+export class McpService implements OnModuleInit {
   private readonly logger = new Logger(McpService.name);
   private readonly algorithm = 'aes-256-gcm';
   private readonly encryptionKey: Buffer;
@@ -32,10 +35,21 @@ export class McpService {
     this.seedDefaultMockServers();
   }
 
+  onModuleInit(): void {
+    if (process.env.NODE_ENV === 'production' && !process.env.ENCRYPTION_SECRET) {
+      throw new Error(
+        'CRITICAL SECURITY ERROR: ENCRYPTION_SECRET environment variable must be set in production.',
+      );
+    }
+  }
+
   /**
    * Encrypt sensitive environment variables, auth tokens, and headers
    */
   public encryptSecrets(secrets: Record<string, string>): string {
+    if (process.env.NODE_ENV === 'production' && !process.env.ENCRYPTION_SECRET) {
+      throw new Error('Cannot encrypt secrets in production without ENCRYPTION_SECRET configured.');
+    }
     const iv = crypto.randomBytes(16);
     const cipher = crypto.createCipheriv(this.algorithm, this.encryptionKey, iv);
     let encrypted = cipher.update(JSON.stringify(secrets), 'utf8', 'hex');
@@ -118,6 +132,59 @@ export class McpService {
     }
   }
 
+  private isBlockedIpAddress(ip: string, isProduction: boolean): boolean {
+    const normalized = ip.toLowerCase().replace(/^::ffff:/, '');
+    if (normalized.startsWith('169.254.')) return true;
+    if (!isProduction) return false;
+    return (
+      normalized.startsWith('127.') ||
+      normalized === '0.0.0.0' ||
+      normalized === '::1' ||
+      normalized === '::' ||
+      normalized.startsWith('10.') ||
+      normalized.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(normalized) ||
+      /^100\.(6[4-9]|[7-9]\d|1[0-1]\d|12[0-7])\./.test(normalized) ||
+      normalized.startsWith('fe80:') ||
+      normalized.startsWith('fc') ||
+      normalized.startsWith('fd')
+    );
+  }
+
+  /**
+   * DNS-Rebinding-Resistant SSRF validation: validates lexical hostname AND resolved DNS IPs.
+   */
+  public async validateRemoteUrlWithDns(rawUrl?: string): Promise<void> {
+    this.validateRemoteUrl(rawUrl);
+    if (!rawUrl) return;
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase();
+    const isProduction = process.env.NODE_ENV === 'production';
+
+    if (net.isIP(host)) {
+      if (this.isBlockedIpAddress(host, isProduction)) {
+        throw new ForbiddenException(`Resolved IP address (${host}) is blocked by SSRF policy.`);
+      }
+      return;
+    }
+
+    if (isProduction) {
+      try {
+        const records = await dns.lookup(host, { all: true });
+        for (const rec of records) {
+          if (this.isBlockedIpAddress(rec.address, true)) {
+            throw new ForbiddenException(
+              `DNS resolution for ${host} returned blocked internal IP (${rec.address}).`,
+            );
+          }
+        }
+      } catch (err: unknown) {
+        if (err instanceof ForbiddenException) throw err;
+        // DNS failure will be handled safely by fetch timeout
+      }
+    }
+  }
+
   /**
    * List all configured MCP servers for the current tenant
    */
@@ -136,10 +203,12 @@ export class McpService {
       this.logger.debug(`Prisma mcpServer query failed, serving from memory store: ${(err as Error).message}`);
     }
 
-    // Fallback: Return tenant-scoped in-memory servers
-    return Array.from(this.memoryServers.values()).filter(
-      (s) => s.organizationId === tenant.organizationId || s.organizationId === 'shared-default',
-    );
+    // Fallback: Return deep-cloned tenant-scoped in-memory servers (prevents cross-tenant mutation)
+    return Array.from(this.memoryServers.values())
+      .filter(
+        (s) => s.organizationId === tenant.organizationId || s.organizationId === 'shared-default',
+      )
+      .map((s) => JSON.parse(JSON.stringify(s)));
   }
 
   /**
@@ -279,14 +348,20 @@ export class McpService {
     } catch (err: any) {
       if (err instanceof NotFoundException) throw err;
 
-      // Memory fallback update
-      const server = this.memoryServers.get(serverId);
+      // Memory fallback update (clone shared-default per tenant to prevent cross-tenant mutation)
+      const tenantOverrideKey = `${tenant.organizationId}:${serverId}`;
+      let server = this.memoryServers.get(tenantOverrideKey) || this.memoryServers.get(serverId);
       if (server) {
+        if (server.organizationId === 'shared-default') {
+          server = JSON.parse(JSON.stringify(server)) as McpServerSummary;
+          server.organizationId = tenant.organizationId;
+          this.memoryServers.set(tenantOverrideKey, server);
+        }
         const tool = server.tools.find((t) => t.id === toolId);
         if (tool) {
           if (updates.isEnabled !== undefined) tool.isEnabled = updates.isEnabled;
           if (updates.requireApproval !== undefined) tool.requireApproval = updates.requireApproval;
-          return tool;
+          return { ...tool };
         }
       }
       throw new NotFoundException(`Tool #${toolId} not found on server #${serverId}.`);
@@ -297,13 +372,17 @@ export class McpService {
    * Delete an MCP server
    */
   async deleteServer(tenant: TenantContext, serverId: string): Promise<{ success: boolean; message: string }> {
-    await this.findServer(tenant, serverId);
+    const server = await this.findServer(tenant, serverId);
+    if (server.organizationId === 'shared-default') {
+      throw new ForbiddenException('Built-in shared MCP templates cannot be deleted.');
+    }
 
     try {
       await (this.prisma.client as any).mcpServer.delete({
         where: { id: serverId },
       });
     } catch {
+      this.memoryServers.delete(`${tenant.organizationId}:${serverId}`);
       this.memoryServers.delete(serverId);
     }
 

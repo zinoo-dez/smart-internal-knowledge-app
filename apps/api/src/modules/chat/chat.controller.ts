@@ -13,7 +13,6 @@ import { Throttle } from '@nestjs/throttler';
 import {
   ConversationDetail,
   ConversationSummary,
-  CreateTicketParams,
   TenantContext,
   TicketStatus,
 } from '@knowledge/shared';
@@ -23,6 +22,7 @@ import { RagAgentService } from './rag-agent.service';
 import { AgentToolsService } from './tools/agent-tools.service';
 import { ConversationsService } from './conversations.service';
 import { ChatCompletionDto } from './dto/chat-completion.dto';
+import { CreateTicketDto } from './dto/create-ticket.dto';
 
 @Controller('api/chat')
 @UseGuards(ClerkAuthGuard)
@@ -69,7 +69,7 @@ export class ChatController {
   @Post('tools/ticket')
   async createTicket(
     @CurrentTenant() tenant: TenantContext,
-    @Body() params: CreateTicketParams,
+    @Body() params: CreateTicketDto,
   ): Promise<{ ticketId: string; status: TicketStatus; message: string }> {
     return this.agentToolsService.createInternalTicket(tenant, params);
   }

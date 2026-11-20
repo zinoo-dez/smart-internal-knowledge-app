@@ -301,4 +301,73 @@ describe('Red-Team Security & Exploit Defense Suite (Hack & Fix Verification)', 
       ).rejects.toThrow(NotFoundException);
     });
   });
+
+  describe('9. Audit Remediation Security Invariants (ABAC Cache, Fail-Fast Secrets, SVG Upload, Demo JWT)', () => {
+    it('EXPLOIT: Attacker uploads SVG with embedded XSS script bypassing extension blocklists', async () => {
+      const mockPrisma: any = { client: { document: { create: vi.fn() } } };
+      const documentsService = new DocumentsService(mockPrisma, {} as any, new DataSanitizerService());
+      const tenant: TenantContext = {
+        organizationId: 'org-test',
+        userId: 'user-01',
+        userRole: UserRole.MEMBER,
+        userEmail: 'user@test.com',
+      };
+
+      const svgXss = {
+        buffer: Buffer.from('<svg onload="alert(1)"></svg>'),
+        originalname: 'diagram.svg',
+        mimetype: 'image/svg+xml',
+        size: 32,
+      } as Express.Multer.File;
+
+      await expect(documentsService.createDocumentFromFile(tenant, svgXss)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('EXPLOIT: Production boot fails fast if ENCRYPTION_SECRET is unset on McpService', () => {
+      const origEnv = process.env.NODE_ENV;
+      const origSecret = process.env.ENCRYPTION_SECRET;
+      process.env.NODE_ENV = 'production';
+      delete process.env.ENCRYPTION_SECRET;
+
+      try {
+        const mcpService = new McpService({} as any);
+        expect(() => mcpService.onModuleInit()).toThrow(/ENCRYPTION_SECRET/);
+      } finally {
+        process.env.NODE_ENV = origEnv;
+        if (origSecret !== undefined) process.env.ENCRYPTION_SECRET = origSecret;
+      }
+    });
+
+    it('EXPLOIT: Tampered demo session Bearer token is cryptographically rejected', () => {
+      const auth = new AuthService({} as any);
+      const issued = auth.issueDemoSessionToken();
+      expect(auth.verifyDemoSessionToken(issued.token)).not.toBeNull();
+
+      // Tamper with payload byte while keeping signature
+      const tampered = issued.token.slice(0, -4) + 'AAAA';
+      expect(auth.verifyDemoSessionToken(tampered)).toBeNull();
+    });
+
+    it('EXPLOIT: Unauthenticated Slack url_verification fails closed in production when secret is missing', async () => {
+      const origEnv = process.env.NODE_ENV;
+      const origSecret = process.env.SLACK_SIGNING_SECRET;
+      process.env.NODE_ENV = 'production';
+      delete process.env.SLACK_SIGNING_SECRET;
+
+      try {
+        const slackBot = new SlackBotService({} as any, {} as any);
+        await expect(
+          slackBot.handleSlackEvent(
+            { type: 'url_verification', challenge: 'evil-challenge' },
+            '{"type":"url_verification","challenge":"evil-challenge"}',
+          ),
+        ).rejects.toThrow(UnauthorizedException);
+      } finally {
+        process.env.NODE_ENV = origEnv;
+        if (origSecret !== undefined) process.env.SLACK_SIGNING_SECRET = origSecret;
+      }
+    });
+  });
 });

@@ -32,7 +32,11 @@ export class DocumentsController {
 
   @Throttle({ default: { limit: 20, ttl: 60000 } })
   @Post('upload/file')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 15 * 1024 * 1024 },
+    }),
+  )
   async uploadFile(
     @CurrentTenant() tenant: TenantContext,
     @UploadedFile() file: Express.Multer.File,

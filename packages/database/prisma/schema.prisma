@@ -72,11 +72,12 @@ enum McpStatus {
 }
 
 model Organization {
-  id          String   @id @default(uuid())
-  clerkOrgId  String   @unique
-  name        String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String   @id @default(uuid())
+  clerkOrgId       String   @unique
+  name             String
+  subscriptionTier String   @default("PRO")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   users          User[]
   documents      Document[]
@@ -150,6 +151,7 @@ model DocumentChunk {
   organization   Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
+  @@index([organizationId, department])
   @@index([documentId])
   @@map("document_chunks")
 }
@@ -200,6 +202,7 @@ model Feedback {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
+  @@index([queryLogId])
   @@map("feedbacks")
 }
 
@@ -251,6 +254,7 @@ model Conversation {
   messages       ChatMessageRecord[]
 
   @@index([organizationId, userId])
+  @@index([organizationId, userId, updatedAt])
   @@index([updatedAt])
   @@map("conversations")
 }

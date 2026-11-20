@@ -215,4 +215,28 @@ describe('HybridSearchService (pgvector + tsvector RRF)', () => {
     expect(response.citations[0].documentTitle).toBe('Emergency Fallback Doc');
     expect(response.citations[0].snippet).toBe('Fallback content for keyword match');
   });
+
+  it('should enforce ABAC Ethical Walls and clearance checks even during Prisma fallback', async () => {
+    mockPrisma.client.$queryRawUnsafe.mockRejectedValue(new Error('pgvector timeout'));
+    mockPrisma.client.documentChunk.findMany.mockResolvedValue([
+      {
+        id: 'c-restricted',
+        documentId: 'd-secret',
+        content: 'Top secret acquisition terms',
+        metadata: { clearanceLevel: 'RESTRICTED', ethicalWallBlockedUsers: ['user-01'] },
+        document: { title: 'Board Confidential', source: 'FILE_UPLOAD', sourceUrl: null },
+      },
+      {
+        id: 'c-public',
+        documentId: 'd-public',
+        content: 'Public onboarding handbook terms',
+        metadata: { clearanceLevel: 'INTERNAL' },
+        document: { title: 'Public Handbook', source: 'FILE_UPLOAD', sourceUrl: null },
+      },
+    ]);
+
+    const response = await service.search(tenant, { query: 'terms', topK: 5 });
+    expect(response.citations).toHaveLength(1);
+    expect(response.citations[0].chunkId).toBe('c-public');
+  });
 });

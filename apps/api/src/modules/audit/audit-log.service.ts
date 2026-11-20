@@ -84,9 +84,14 @@ export class AuditLogService {
       ];
     }
 
+    const db =
+      typeof (this.prisma as any).forTenant === 'function'
+        ? (this.prisma as any).forTenant(tenant.organizationId)
+        : this.prisma.client;
+
     const [total, logs] = await Promise.all([
-      this.prisma.client.auditLog.count({ where }),
-      this.prisma.client.auditLog.findMany({
+      db.auditLog.count({ where }),
+      db.auditLog.findMany({
         where,
         skip,
         take: limit,

@@ -23,6 +23,14 @@ export interface TenantContext {
   clearanceLevel?: ClearanceLevel;
 }
 
+export interface DemoSessionResponse {
+  token: string;
+  expiresAt: string;
+  organizationId: string;
+  userId: string;
+  userRole: UserRole;
+}
+
 // Ingestion Contracts
 export interface IngestDocumentRequest {
   title: string;
@@ -90,6 +98,8 @@ export interface ChatCompletionRequest {
   modelProvider?: string;
   modelName?: string;
   conversationId?: string;
+  mode?: 'chat' | 'tools' | 'research';
+  thinkingLevel?: 'normal' | 'deep';
 }
 
 export interface CreateTicketParams {

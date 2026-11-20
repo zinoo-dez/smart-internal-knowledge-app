@@ -541,7 +541,7 @@ describe('RagAgentService', () => {
 
         expect(route.tier).toBe('FLASH');
         expect(route.recommendedProvider).toBe('GEMINI');
-        expect(route.recommendedModel).toBe('gemini-3.5-flash-lite');
+        expect(route.recommendedModel).toBe('gemini-2.5-flash');
       });
 
       it('should route analytical, legal, and multi-part questions to Claude Reasoning tier', () => {

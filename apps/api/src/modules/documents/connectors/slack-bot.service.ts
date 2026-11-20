@@ -84,7 +84,13 @@ export class SlackBotService {
     signature?: string,
     timestamp?: string,
   ): Promise<{ ok: boolean; challenge?: string; message: string }> {
-    // 1. URL verification handshake
+    // 1. Validate Slack cryptographic signature unconditionally (fail-closed in production)
+    const isValid = this.verifySlackSignature(signature, timestamp, rawBody);
+    if (!isValid) {
+      throw new UnauthorizedException('Invalid or expired Slack request signature');
+    }
+
+    // 2. URL verification handshake (only after signature verification passes)
     if (payload.type === 'url_verification' && payload.challenge) {
       this.logger.log('Responding to Slack Events API URL verification challenge');
       return {
@@ -92,14 +98,6 @@ export class SlackBotService {
         challenge: payload.challenge,
         message: 'URL verification challenge verified',
       };
-    }
-
-    // 2. Validate Slack cryptographic signature
-    if (process.env.SLACK_SIGNING_SECRET) {
-      const isValid = this.verifySlackSignature(signature, timestamp, rawBody);
-      if (!isValid) {
-        throw new UnauthorizedException('Invalid or expired Slack request signature');
-      }
     }
 
     // 3. Handle app_mention event

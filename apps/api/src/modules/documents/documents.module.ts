@@ -3,6 +3,7 @@ import { DocumentsController } from './documents.controller';
 import { DocumentsService } from './documents.service';
 import { EmbeddingService } from './services/embedding.service';
 import { IngestionProcessor } from './workers/ingestion.processor';
+import { IngestionQueueService } from './workers/ingestion-queue.service';
 import { AuthModule } from '../auth/auth.module';
 import { AuditModule } from '../audit/audit.module';
 import { ChatModule } from '../chat/chat.module';
@@ -28,6 +29,7 @@ import { DataSanitizerService } from './services/data-sanitizer.service';
     DocumentsService,
     EmbeddingService,
     IngestionProcessor,
+    IngestionQueueService,
     NotionConnector,
     ConfluenceConnector,
     SlackConnector,
@@ -39,6 +41,7 @@ import { DataSanitizerService } from './services/data-sanitizer.service';
     DocumentsService,
     EmbeddingService,
     IngestionProcessor,
+    IngestionQueueService,
     NotionConnector,
     ConfluenceConnector,
     SlackConnector,

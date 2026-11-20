@@ -25,6 +25,7 @@ import { McpClientManagerService } from './services/mcp-client-manager.service';
 import { CreateMcpServerDto } from './dto/create-mcp-server.dto';
 import { TestMcpConnectionDto } from './dto/test-mcp-connection.dto';
 import { ExecuteMcpToolDto } from './dto/execute-mcp-tool.dto';
+import { ToggleMcpToolDto } from './dto/toggle-mcp-tool.dto';
 
 @Controller('api/mcp')
 @UseGuards(ClerkAuthGuard, RolesGuard)
@@ -69,7 +70,7 @@ export class McpController {
     @CurrentTenant() tenant: TenantContext,
     @Param('id') serverId: string,
     @Param('toolId') toolId: string,
-    @Body() body: { isEnabled?: boolean; requireApproval?: boolean },
+    @Body() body: ToggleMcpToolDto,
   ): Promise<McpToolSummary> {
     return this.mcpService.toggleTool(tenant, serverId, toolId, body);
   }

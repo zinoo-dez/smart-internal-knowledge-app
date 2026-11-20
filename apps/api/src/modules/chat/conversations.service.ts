@@ -18,8 +18,15 @@ export class ConversationsService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  private getDb(organizationId: string) {
+    return typeof (this.prisma as any).forTenant === 'function'
+      ? (this.prisma as any).forTenant(organizationId)
+      : this.prisma.client;
+  }
+
   async listConversations(tenant: TenantContext): Promise<ConversationSummary[]> {
-    const list = await this.prisma.client.conversation.findMany({
+    const db = this.getDb(tenant.organizationId);
+    const list = await db.conversation.findMany({
       where: {
         organizationId: tenant.organizationId,
         userId: tenant.userId,
@@ -35,15 +42,25 @@ export class ConversationsService {
       take: 50,
     });
 
-    return list.map((c) => ({
-      id: c.id,
-      title: c.title,
-      userId: c.userId,
-      organizationId: c.organizationId,
-      createdAt: c.createdAt.toISOString(),
-      updatedAt: c.updatedAt.toISOString(),
-      messageCount: c._count.messages,
-    }));
+    return list.map(
+      (c: {
+        id: string;
+        title: string;
+        userId: string;
+        organizationId: string;
+        createdAt: Date;
+        updatedAt: Date;
+        _count: { messages: number };
+      }) => ({
+        id: c.id,
+        title: c.title,
+        userId: c.userId,
+        organizationId: c.organizationId,
+        createdAt: c.createdAt.toISOString(),
+        updatedAt: c.updatedAt.toISOString(),
+        messageCount: c._count.messages,
+      }),
+    );
   }
 
   async getConversation(

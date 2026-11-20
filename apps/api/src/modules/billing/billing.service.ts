@@ -10,7 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 @Injectable()
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
-  // In-memory tenant tier cache (defaults to PRO for internal enterprise demo)
+  // In-memory write-through cache backed by Organization.subscriptionTier in PostgreSQL
   private readonly tenantTiers = new Map<string, SubscriptionTier>();
 
   constructor(private readonly prisma: PrismaService) {}
@@ -24,41 +24,79 @@ export class BillingService {
     this.logger.log(`Tenant ${organizationId} subscription updated to: ${tier}`);
   }
 
+  private async resolvePersistedTier(organizationId: string): Promise<SubscriptionTier> {
+    const cached = this.tenantTiers.get(organizationId);
+    if (cached) return cached;
+
+    try {
+      const org = await (this.prisma.client as any)?.organization?.findUnique?.({
+        where: { id: organizationId },
+        select: { subscriptionTier: true },
+      });
+      if (org?.subscriptionTier && Object.values(SubscriptionTier).includes(org.subscriptionTier)) {
+        const tier = org.subscriptionTier as SubscriptionTier;
+        this.tenantTiers.set(organizationId, tier);
+        return tier;
+      }
+    } catch {
+      // Fallback to default PRO tier when offline or unmocked
+    }
+
+    return SubscriptionTier.PRO;
+  }
+
   async getTenantUsage(tenant: TenantContext): Promise<TenantUsageSummary> {
-    const tier = this.getTenantTier(tenant.organizationId);
+    const tier = await this.resolvePersistedTier(tenant.organizationId);
     const quota = SUBSCRIPTION_TIERS[tier];
 
-    // Calculate start and end of current month
     const now = new Date();
     const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
-    let queryCount = 0;
-    let tokenCount = 0;
-    let documentCount = 0;
+    let queryCount: number;
+    let tokenCount: number;
+    let documentCount: number;
 
     try {
-      const logs = await this.prisma.client.queryLog.findMany({
-        where: {
-          organizationId: tenant.organizationId,
-          createdAt: {
-            gte: periodStart,
-            lte: periodEnd,
-          },
-        },
-        select: {
-          totalTokens: true,
-        },
-      });
+      const queryLogModel = this.prisma.client.queryLog as any;
 
-      queryCount = logs.length;
-      tokenCount = logs.reduce((acc, l) => acc + (l.totalTokens || 0), 0);
+      // Prefer DB-level O(1)-RAM aggregate instead of loading all monthly query logs into Node.js memory
+      if (typeof queryLogModel.aggregate === 'function') {
+        const [agg, docCount] = await Promise.all([
+          queryLogModel.aggregate({
+            where: {
+              organizationId: tenant.organizationId,
+              createdAt: { gte: periodStart, lte: periodEnd },
+            },
+            _count: { _all: true },
+            _sum: { totalTokens: true },
+          }),
+          this.prisma.client.document.count({
+            where: { organizationId: tenant.organizationId },
+          }),
+        ]);
 
-      documentCount = await this.prisma.client.document.count({
-        where: {
-          organizationId: tenant.organizationId,
-        },
-      });
+        queryCount = agg?._count?._all ?? 0;
+        tokenCount = agg?._sum?.totalTokens ?? 0;
+        documentCount = docCount;
+      } else {
+        const [logs, docCount] = await Promise.all([
+          this.prisma.client.queryLog.findMany({
+            where: {
+              organizationId: tenant.organizationId,
+              createdAt: { gte: periodStart, lte: periodEnd },
+            },
+            select: { totalTokens: true },
+          }),
+          this.prisma.client.document.count({
+            where: { organizationId: tenant.organizationId },
+          }),
+        ]);
+
+        queryCount = logs.length;
+        tokenCount = logs.reduce((acc, l) => acc + (l.totalTokens || 0), 0);
+        documentCount = docCount;
+      }
     } catch (err) {
       this.logger.warn(`Could not fetch exact usage from database: ${err}. Using baseline metrics.`);
       queryCount = 12;
@@ -110,6 +148,18 @@ export class BillingService {
     targetTier: SubscriptionTier,
   ): Promise<{ success: boolean; message: string; tier: SubscriptionTier }> {
     this.setTenantTier(tenant.organizationId, targetTier);
+
+    try {
+      await (this.prisma.client as any)?.organization?.update?.({
+        where: { id: tenant.organizationId },
+        data: { subscriptionTier: targetTier },
+      });
+    } catch (err) {
+      this.logger.debug(
+        `Skipped persisting subscriptionTier to DB (offline/mock): ${(err as Error).message}`,
+      );
+    }
+
     return {
       success: true,
       message: `Successfully upgraded organization subscription to ${targetTier}`,

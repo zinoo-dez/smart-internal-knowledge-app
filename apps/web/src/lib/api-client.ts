@@ -1,17 +1,16 @@
 import {
   AnalyticsSummaryResponse,
-  AuditLogItem,
   ConnectorStatusResponse,
   ConversationDetail,
   ConversationSummary,
   CreateTicketParams,
+  DemoSessionResponse,
   Department,
   DocumentSource,
   DocumentSummary,
   FeedbackType,
   IngestDocumentRequest,
   IngestDocumentResponse,
-  KnowledgeGapItem,
   KnowledgeGapSummaryResponse,
   NotionSyncRequest,
   ConfluenceSyncRequest,
@@ -32,20 +31,159 @@ import {
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-const DEFAULT_HEADERS: Record<string, string> = {
-  'Content-Type': 'application/json',
-  'x-mock-user-id': 'dev-admin-01',
-  'x-mock-org-id': 'mock-org-default',
-  'x-mock-role': 'ADMIN',
-  'x-mock-email': 'admin@company.internal',
-};
+const DEMO_TOKEN_STORAGE_KEY = 'knowledge_assistant_demo_session';
+
+interface CachedDemoSession {
+  token: string;
+  expiresAtMs: number;
+}
+
+let cachedSession: CachedDemoSession | null = null;
+let inflightSessionPromise: Promise<string | null> | null = null;
+
+export function clearDemoSessionCache(): void {
+  cachedSession = null;
+  inflightSessionPromise = null;
+  if (typeof window !== 'undefined') {
+    try {
+      window.sessionStorage.removeItem(DEMO_TOKEN_STORAGE_KEY);
+    } catch {
+      // Ignore storage access restrictions
+    }
+  }
+}
+
+export function isMixedContentBlocked(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    window.location.protocol === 'https:' &&
+    API_BASE_URL.startsWith('http:') &&
+    !API_BASE_URL.startsWith('https:')
+  );
+}
+
+async function fetchDemoSessionToken(): Promise<string | null> {
+  if (isMixedContentBlocked()) return null;
+
+  const now = Date.now();
+  // 1. In-memory cache (refresh 60s before expiry)
+  if (cachedSession && cachedSession.expiresAtMs - 60_000 > now) {
+    return cachedSession.token;
+  }
+
+  // 2. sessionStorage cache
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = window.sessionStorage.getItem(DEMO_TOKEN_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as CachedDemoSession;
+        if (parsed.token && parsed.expiresAtMs - 60_000 > now) {
+          cachedSession = parsed;
+          return parsed.token;
+        }
+      }
+    } catch {
+      // Ignore malformed cache
+    }
+  }
+
+  // 3. Deduplicate concurrent session fetches
+  if (inflightSessionPromise) {
+    return inflightSessionPromise;
+  }
+
+  inflightSessionPromise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/auth/demo-session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as DemoSessionResponse;
+      if (!data?.token) return null;
+
+      const session: CachedDemoSession = {
+        token: data.token,
+        expiresAtMs: new Date(data.expiresAt).getTime(),
+      };
+      cachedSession = session;
+
+      if (typeof window !== 'undefined') {
+        try {
+          window.sessionStorage.setItem(DEMO_TOKEN_STORAGE_KEY, JSON.stringify(session));
+        } catch {
+          // Ignore storage quota errors
+        }
+      }
+      return data.token;
+    } catch {
+      return null;
+    } finally {
+      inflightSessionPromise = null;
+    }
+  })();
+
+  return inflightSessionPromise;
+}
+
+/**
+ * Resolves Authorization headers using a server-issued signed Portfolio Demo Bearer token.
+ * Never ships hardcoded x-mock-* admin headers in production requests.
+ */
+export async function getAuthHeaders(includeJsonContentType = true): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
+  if (includeJsonContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  const token = await fetchDemoSessionToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+/**
+ * Authenticated fetch wrapper with single automatic retry on expired 401 session token.
+ */
+async function apiFetch(
+  path: string,
+  options: RequestInit = {},
+  includeJsonContentType = true,
+): Promise<Response> {
+  if (isMixedContentBlocked()) {
+    throw new Error('Mixed content: HTTPS page cannot fetch from HTTP API.');
+  }
+
+  const authHeaders = await getAuthHeaders(includeJsonContentType);
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      ...authHeaders,
+      ...(options.headers || {}),
+    },
+  });
+
+  if (res.status === 401) {
+    clearDemoSessionCache();
+    const refreshedHeaders = await getAuthHeaders(includeJsonContentType);
+    if (refreshedHeaders['Authorization']) {
+      return fetch(`${API_BASE_URL}${path}`, {
+        ...options,
+        headers: {
+          ...refreshedHeaders,
+          ...(options.headers || {}),
+        },
+      });
+    }
+  }
+
+  return res;
+}
 
 export async function fetchDocuments(): Promise<DocumentSummary[]> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/documents`, {
-      headers: DEFAULT_HEADERS,
-      cache: 'no-store',
-    });
+    const res = await apiFetch('/api/documents', { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -104,9 +242,8 @@ export async function fetchDocuments(): Promise<DocumentSummary[]> {
 export async function createDocument(
   data: IngestDocumentRequest,
 ): Promise<IngestDocumentResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/documents`, {
+  const res = await apiFetch('/api/documents', {
     method: 'POST',
-    headers: DEFAULT_HEADERS,
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -121,34 +258,26 @@ export async function uploadDocumentFile(
   formData.append('file', file);
   if (title) formData.append('title', title);
 
-  const res = await fetch(`${API_BASE_URL}/api/documents/upload/file`, {
-    method: 'POST',
-    headers: {
-      'x-mock-user-id': 'dev-admin-01',
-      'x-mock-org-id': 'mock-org-default',
-      'x-mock-role': 'ADMIN',
-      'x-mock-email': 'admin@company.internal',
+  const res = await apiFetch(
+    '/api/documents/upload/file',
+    {
+      method: 'POST',
+      body: formData,
     },
-    body: formData,
-  });
+    false,
+  );
   if (!res.ok) throw new Error(`File upload failed: HTTP ${res.status}`);
   return await res.json();
 }
 
 export async function deleteDocument(id: string): Promise<void> {
-  const res = await fetch(`${API_BASE_URL}/api/documents/${id}`, {
-    method: 'DELETE',
-    headers: DEFAULT_HEADERS,
-  });
+  const res = await apiFetch(`/api/documents/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
 }
 
 export async function fetchAnalytics(): Promise<AnalyticsSummaryResponse> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/feedback/analytics/summary`, {
-      headers: DEFAULT_HEADERS,
-      cache: 'no-store',
-    });
+    const res = await apiFetch('/api/feedback/analytics/summary', { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -181,9 +310,8 @@ export async function submitFeedback(
   feedbackType: FeedbackType,
   comment?: string,
 ): Promise<{ success: boolean }> {
-  const res = await fetch(`${API_BASE_URL}/api/feedback`, {
+  const res = await apiFetch('/api/feedback', {
     method: 'POST',
-    headers: DEFAULT_HEADERS,
     body: JSON.stringify({ queryLogId, feedbackType, comment }),
   });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -193,9 +321,8 @@ export async function submitFeedback(
 export async function createSupportTicket(
   params: CreateTicketParams,
 ): Promise<{ ticketId: string; status: TicketStatus; message: string }> {
-  const res = await fetch(`${API_BASE_URL}/api/chat/tools/ticket`, {
+  const res = await apiFetch('/api/chat/tools/ticket', {
     method: 'POST',
-    headers: DEFAULT_HEADERS,
     body: JSON.stringify(params),
   });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -204,10 +331,7 @@ export async function createSupportTicket(
 
 export async function fetchConnectorStatus(): Promise<ConnectorStatusResponse> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/connectors/status`, {
-      headers: DEFAULT_HEADERS,
-      cache: 'no-store',
-    });
+    const res = await apiFetch('/api/connectors/status', { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -237,9 +361,8 @@ export async function syncNotionPage(
   data: NotionSyncRequest,
 ): Promise<{ success: boolean; documentId: string; title: string; message: string }> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/connectors/notion/sync`, {
+    const res = await apiFetch('/api/connectors/notion/sync', {
       method: 'POST',
-      headers: DEFAULT_HEADERS,
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -259,9 +382,8 @@ export async function syncConfluenceSpace(
   data: ConfluenceSyncRequest,
 ): Promise<{ success: boolean; documentId: string; title: string; message: string }> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/connectors/confluence/sync`, {
+    const res = await apiFetch('/api/connectors/confluence/sync', {
       method: 'POST',
-      headers: DEFAULT_HEADERS,
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -280,9 +402,8 @@ export async function syncConfluenceSpace(
 export async function sendSlackWebhook(
   data: SlackWebhookPayload,
 ): Promise<{ ok: boolean; documentId?: string; message: string }> {
-  const res = await fetch(`${API_BASE_URL}/api/connectors/slack/webhook`, {
+  const res = await apiFetch('/api/connectors/slack/webhook', {
     method: 'POST',
-    headers: DEFAULT_HEADERS,
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -294,20 +415,14 @@ export async function triggerScheduledSync(): Promise<{
   syncedCount: number;
   staleCount: number;
 }> {
-  const res = await fetch(`${API_BASE_URL}/api/connectors/schedule/run-now`, {
-    method: 'POST',
-    headers: DEFAULT_HEADERS,
-  });
+  const res = await apiFetch('/api/connectors/schedule/run-now', { method: 'POST' });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
   return await res.json();
 }
 
 export async function fetchConversations(): Promise<ConversationSummary[]> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/chat/conversations`, {
-      headers: DEFAULT_HEADERS,
-      cache: 'no-store',
-    });
+    const res = await apiFetch('/api/chat/conversations', { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -336,29 +451,20 @@ export async function fetchConversations(): Promise<ConversationSummary[]> {
 }
 
 export async function fetchConversationDetail(id: string): Promise<ConversationDetail> {
-  const res = await fetch(`${API_BASE_URL}/api/chat/conversations/${id}`, {
-    headers: DEFAULT_HEADERS,
-    cache: 'no-store',
-  });
+  const res = await apiFetch(`/api/chat/conversations/${id}`, { cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
   return await res.json();
 }
 
 export async function deleteConversation(id: string): Promise<{ success: boolean }> {
-  const res = await fetch(`${API_BASE_URL}/api/chat/conversations/${id}`, {
-    method: 'DELETE',
-    headers: DEFAULT_HEADERS,
-  });
+  const res = await apiFetch(`/api/chat/conversations/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
   return await res.json();
 }
 
 export async function fetchKnowledgeGaps(): Promise<KnowledgeGapSummaryResponse> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/feedback/knowledge-gaps`, {
-      headers: DEFAULT_HEADERS,
-      cache: 'no-store',
-    });
+    const res = await apiFetch('/api/feedback/knowledge-gaps', { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -408,9 +514,8 @@ export async function resolveKnowledgeGap(
   gapId: string,
   resolutionNote: string,
 ): Promise<{ success: boolean }> {
-  const res = await fetch(`${API_BASE_URL}/api/feedback/knowledge-gaps/${gapId}/resolve`, {
+  const res = await apiFetch(`/api/feedback/knowledge-gaps/${gapId}/resolve`, {
     method: 'POST',
-    headers: DEFAULT_HEADERS,
     body: JSON.stringify({ resolutionNote }),
   });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -421,9 +526,8 @@ export async function assignKnowledgeGap(
   gapId: string,
   assignedTo: string,
 ): Promise<{ success: boolean }> {
-  const res = await fetch(`${API_BASE_URL}/api/feedback/knowledge-gaps/${gapId}/assign`, {
+  const res = await apiFetch(`/api/feedback/knowledge-gaps/${gapId}/assign`, {
     method: 'POST',
-    headers: DEFAULT_HEADERS,
     body: JSON.stringify({ assignedTo }),
   });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -443,10 +547,7 @@ export async function fetchAuditLogs(
   if (params?.endDate) query.set('endDate', params.endDate);
 
   try {
-    const res = await fetch(`${API_BASE_URL}/api/admin/audit-logs?${query.toString()}`, {
-      headers: DEFAULT_HEADERS,
-      cache: 'no-store',
-    });
+    const res = await apiFetch(`/api/admin/audit-logs?${query.toString()}`, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -506,10 +607,7 @@ export function getExportAuditLogsUrl(params?: QueryAuditLogsParams): string {
 
 export async function fetchBillingUsage(): Promise<TenantUsageSummary> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/billing/usage`, {
-      headers: DEFAULT_HEADERS,
-      cache: 'no-store',
-    });
+    const res = await apiFetch('/api/billing/usage', { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -517,8 +615,16 @@ export async function fetchBillingUsage(): Promise<TenantUsageSummary> {
     return {
       organizationId: 'mock-org-default',
       tier: SubscriptionTier.PRO,
-      currentPeriodStart: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString(),
-      currentPeriodEnd: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString(),
+      currentPeriodStart: new Date(
+        new Date().getFullYear(),
+        new Date().getMonth(),
+        1,
+      ).toISOString(),
+      currentPeriodEnd: new Date(
+        new Date().getFullYear(),
+        new Date().getMonth() + 1,
+        0,
+      ).toISOString(),
       queryCount: 42,
       queryLimit: 2500,
       queryUsagePercent: 2,
@@ -535,9 +641,8 @@ export async function fetchBillingUsage(): Promise<TenantUsageSummary> {
 export async function upgradeSubscription(
   tier: SubscriptionTier,
 ): Promise<{ success: boolean; message: string; tier: SubscriptionTier }> {
-  const res = await fetch(`${API_BASE_URL}/api/billing/upgrade`, {
+  const res = await apiFetch('/api/billing/upgrade', {
     method: 'POST',
-    headers: DEFAULT_HEADERS,
     body: JSON.stringify({ tier }),
   });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -547,10 +652,7 @@ export async function upgradeSubscription(
 // MCP Hub & Connectors API
 export async function fetchMcpServers(): Promise<McpServerSummary[]> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/mcp/servers`, {
-      headers: DEFAULT_HEADERS,
-      cache: 'no-store',
-    });
+    const res = await apiFetch('/api/mcp/servers', { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
     return await res.json();
   } catch (err) {
@@ -571,8 +673,13 @@ export async function fetchMcpServers(): Promise<McpServerSummary[]> {
             id: 'neon-tool-run-sql',
             serverId: 'mcp-neon-postgres',
             name: 'postgres_run_query',
-            description: 'Execute parameterized read-only SQL queries on the internal PostgreSQL database.',
-            inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+            description:
+              'Execute parameterized read-only SQL queries on the internal PostgreSQL database.',
+            inputSchema: {
+              type: 'object',
+              properties: { query: { type: 'string' } },
+              required: ['query'],
+            },
             isEnabled: true,
             requireApproval: false,
             createdAt: new Date().toISOString(),
@@ -582,7 +689,11 @@ export async function fetchMcpServers(): Promise<McpServerSummary[]> {
             serverId: 'mcp-neon-postgres',
             name: 'postgres_describe_schema',
             description: 'Inspect table schema, columns, and indexes.',
-            inputSchema: { type: 'object', properties: { tableName: { type: 'string' } }, required: ['tableName'] },
+            inputSchema: {
+              type: 'object',
+              properties: { tableName: { type: 'string' } },
+              required: ['tableName'],
+            },
             isEnabled: true,
             requireApproval: false,
             createdAt: new Date().toISOString(),
@@ -607,7 +718,10 @@ export async function fetchMcpServers(): Promise<McpServerSummary[]> {
             serverId: 'mcp-github-enterprise',
             name: 'github_get_issue',
             description: 'Fetch details, status, and comments of a GitHub issue or pull request.',
-            inputSchema: { type: 'object', properties: { repo: { type: 'string' }, issueNumber: { type: 'number' } } },
+            inputSchema: {
+              type: 'object',
+              properties: { repo: { type: 'string' }, issueNumber: { type: 'number' } },
+            },
             isEnabled: true,
             requireApproval: false,
             createdAt: new Date().toISOString(),
@@ -617,7 +731,10 @@ export async function fetchMcpServers(): Promise<McpServerSummary[]> {
             serverId: 'mcp-github-enterprise',
             name: 'github_create_issue',
             description: 'Create a new GitHub tracking issue.',
-            inputSchema: { type: 'object', properties: { repo: { type: 'string' }, title: { type: 'string' } } },
+            inputSchema: {
+              type: 'object',
+              properties: { repo: { type: 'string' }, title: { type: 'string' } },
+            },
             isEnabled: true,
             requireApproval: true,
             createdAt: new Date().toISOString(),
@@ -659,9 +776,8 @@ export async function testMcpConnection(
   dto: TestMcpConnectionRequest,
 ): Promise<TestMcpConnectionResponse> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/mcp/servers/test`, {
+    const res = await apiFetch('/api/mcp/servers/test', {
       method: 'POST',
-      headers: DEFAULT_HEADERS,
       body: JSON.stringify(dto),
     });
     if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -688,12 +804,9 @@ export async function testMcpConnection(
   }
 }
 
-export async function createMcpServer(
-  dto: CreateMcpServerRequest,
-): Promise<McpServerSummary> {
-  const res = await fetch(`${API_BASE_URL}/api/mcp/servers`, {
+export async function createMcpServer(dto: CreateMcpServerRequest): Promise<McpServerSummary> {
+  const res = await apiFetch('/api/mcp/servers', {
     method: 'POST',
-    headers: DEFAULT_HEADERS,
     body: JSON.stringify(dto),
   });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -705,9 +818,8 @@ export async function toggleMcpTool(
   toolId: string,
   updates: { isEnabled?: boolean; requireApproval?: boolean },
 ): Promise<McpToolSummary> {
-  const res = await fetch(`${API_BASE_URL}/api/mcp/servers/${serverId}/tools/${toolId}`, {
+  const res = await apiFetch(`/api/mcp/servers/${serverId}/tools/${toolId}`, {
     method: 'PATCH',
-    headers: DEFAULT_HEADERS,
     body: JSON.stringify(updates),
   });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
@@ -717,11 +829,7 @@ export async function toggleMcpTool(
 export async function deleteMcpServer(
   serverId: string,
 ): Promise<{ success: boolean; message: string }> {
-  const res = await fetch(`${API_BASE_URL}/api/mcp/servers/${serverId}`, {
-    method: 'DELETE',
-    headers: DEFAULT_HEADERS,
-  });
+  const res = await apiFetch(`/api/mcp/servers/${serverId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`HTTP error ${res.status}`);
   return await res.json();
 }
-

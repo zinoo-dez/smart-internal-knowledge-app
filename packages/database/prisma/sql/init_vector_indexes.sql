@@ -16,5 +16,13 @@ USING gin (tsv);
 CREATE INDEX IF NOT EXISTS idx_chunks_org_doc 
 ON document_chunks ("organizationId", "documentId");
 
+CREATE INDEX IF NOT EXISTS idx_chunks_org_dept
+ON document_chunks ("organizationId", department);
+
+-- GIN JSONB index for ABAC Ethical Wall & matterId filtering
+CREATE INDEX IF NOT EXISTS idx_document_chunks_metadata_gin
+ON document_chunks
+USING gin (metadata jsonb_path_ops);
+
 CREATE INDEX IF NOT EXISTS idx_query_logs_org_created 
 ON query_logs ("organizationId", "createdAt" DESC);

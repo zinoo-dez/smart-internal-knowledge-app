@@ -67,4 +67,16 @@ describe('BillingService', () => {
     const check = await service.checkQuota(tenant);
     expect(check.allowed).toBe(true);
   });
+
+  it('should use DB-level queryLog.aggregate when available to avoid loading all logs into RAM', async () => {
+    mockPrisma.client.queryLog.aggregate = vi.fn().mockResolvedValue({
+      _count: { _all: 42 },
+      _sum: { totalTokens: 84000 },
+    });
+
+    const usage = await service.getTenantUsage(tenant);
+    expect(mockPrisma.client.queryLog.aggregate).toHaveBeenCalled();
+    expect(usage.queryCount).toBe(42);
+    expect(usage.tokenCount).toBe(84000);
+  });
 });

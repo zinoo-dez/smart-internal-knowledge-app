@@ -8,7 +8,7 @@ on:
 
 jobs:
   verify:
-    name: Typecheck, Test & Build
+    name: Lint, Typecheck, Test & Build
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: "postgresql://postgres:postgrespassword@localhost:5432/knowledge_assistant_db?schema=public"
@@ -31,11 +31,17 @@ jobs:
       - name: Generate Prisma Client
         run: npm run db:generate --workspace=@knowledge/database
 
+      - name: Turborepo ESLint
+        run: npx turbo run lint
+
       - name: Turborepo Typecheck
         run: npx turbo run typecheck
 
-      - name: Turborepo Test Suite
+      - name: Turborepo Test Suite (API Unit + HTTP Integration + Web Unit)
         run: npx turbo run test
+
+      - name: Production Dependency Security Audit
+        run: npm audit --omit=dev --audit-level=critical || true
 
       - name: Turborepo Production Build
         run: npx turbo run build

@@ -5,7 +5,10 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  RawBodyRequest,
+  Req,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { SlackEventPayload } from '@knowledge/shared';
 import { SlackBotService } from './slack-bot.service';
 
@@ -19,8 +22,11 @@ export class SlackEventsController {
     @Body() payload: SlackEventPayload,
     @Headers('x-slack-signature') signature?: string,
     @Headers('x-slack-request-timestamp') timestamp?: string,
+    @Req() req?: RawBodyRequest<Request>,
   ) {
-    const rawBody = JSON.stringify(payload);
+    const rawBody = req?.rawBody
+      ? req.rawBody.toString('utf8')
+      : JSON.stringify(payload);
     return this.slackBotService.handleSlackEvent(payload, rawBody, signature, timestamp);
   }
 }

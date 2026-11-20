@@ -27,9 +27,17 @@ export class IngestionProcessor {
   ) {}
 
   async processDocument(data: IngestionJobData): Promise<void> {
-    const { documentId, organizationId, content, department = Department.ALL, metadata = {} } = data;
+    const {
+      documentId,
+      organizationId,
+      content,
+      department = Department.ALL,
+      metadata = {},
+    } = data;
     const startTime = Date.now();
-    this.logger.log(`Starting high-throughput ingestion for doc ${documentId} (Org: ${organizationId}, Dept: ${department})`);
+    this.logger.log(
+      `Starting high-throughput ingestion for doc ${documentId} (Org: ${organizationId}, Dept: ${department})`,
+    );
 
     try {
       // 1. Set status to PROCESSING
@@ -47,7 +55,7 @@ export class IngestionProcessor {
         throw new Error('Document content is empty or unparsable');
       }
 
-      // 4. Batched Embedding Generation (prevents 3P API timeouts & payload overflow)
+      // 4. Batched Embedding Generation (outside DB transaction to avoid holding locks during network I/O)
       const chunkTexts = chunks.map((c) => c.content);
       const embeddings: number[][] = [];
       for (let i = 0; i < chunkTexts.length; i += this.EMBED_BATCH_SIZE) {
@@ -56,66 +64,74 @@ export class IngestionProcessor {
         embeddings.push(...sliceEmbeddings);
       }
 
-      // 5. Clean up any existing chunks for idempotency
-      await this.prisma.client.documentChunk.deleteMany({
-        where: { documentId },
-      });
+      // 5-7. Atomic Transaction: Delete old chunks + Batch Multi-Row Insert + Mark INDEXED
+      const persistChunksAtomically = async (tx: any) => {
+        await tx.documentChunk.deleteMany({
+          where: { documentId },
+        });
 
-      // 6. High-Throughput Batch Parameterized Multi-Row Inserts (Single Round-Trip per Batch)
-      for (let i = 0; i < chunks.length; i += this.DB_BATCH_SIZE) {
-        const batchChunks = chunks.slice(i, i + this.DB_BATCH_SIZE);
-        const batchEmbeddings = embeddings.slice(i, i + this.DB_BATCH_SIZE);
+        for (let i = 0; i < chunks.length; i += this.DB_BATCH_SIZE) {
+          const batchChunks = chunks.slice(i, i + this.DB_BATCH_SIZE);
+          const batchEmbeddings = embeddings.slice(i, i + this.DB_BATCH_SIZE);
 
-        const valueClauses: string[] = [];
-        const params: unknown[] = [];
-        let paramIdx = 1;
+          const valueClauses: string[] = [];
+          const params: unknown[] = [];
+          let paramIdx = 1;
 
-        for (let j = 0; j < batchChunks.length; j++) {
-          const chunk = batchChunks[j];
-          const vectorStr = `[${batchEmbeddings[j].join(',')}]`;
-          const chunkMeta = JSON.stringify({
-            ...metadata,
-            chunkIndex: chunk.chunkIndex,
-            totalChunks: chunks.length,
-          });
+          for (let j = 0; j < batchChunks.length; j++) {
+            const chunk = batchChunks[j];
+            const vectorStr = `[${batchEmbeddings[j].join(',')}]`;
+            const chunkMeta = JSON.stringify({
+              ...metadata,
+              chunkIndex: chunk.chunkIndex,
+              totalChunks: chunks.length,
+            });
 
-          valueClauses.push(
-            `(gen_random_uuid(), $${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}::"Department", $${paramIdx + 5}::vector, to_tsvector('english', $${paramIdx + 3}), $${paramIdx + 6}::jsonb, NOW())`,
-          );
+            valueClauses.push(
+              `(gen_random_uuid(), $${paramIdx}, $${paramIdx + 1}, $${paramIdx + 2}, $${paramIdx + 3}, $${paramIdx + 4}::"Department", $${paramIdx + 5}::vector, to_tsvector('english', $${paramIdx + 3}), $${paramIdx + 6}::jsonb, NOW())`,
+            );
 
-          params.push(
-            documentId,
-            organizationId,
-            chunk.chunkIndex,
-            chunk.content,
-            department,
-            vectorStr,
-            chunkMeta,
-          );
+            params.push(
+              documentId,
+              organizationId,
+              chunk.chunkIndex,
+              chunk.content,
+              department,
+              vectorStr,
+              chunkMeta,
+            );
 
-          paramIdx += 7;
+            paramIdx += 7;
+          }
+
+          const batchSql = `
+            INSERT INTO document_chunks (
+              id, "documentId", "organizationId", "chunkIndex", content, department, embedding, tsv, metadata, "createdAt"
+            )
+            VALUES ${valueClauses.join(',\n')}
+          `;
+
+          await tx.$executeRawUnsafe(batchSql, ...params);
         }
 
-        const batchSql = `
-          INSERT INTO document_chunks (
-            id, "documentId", "organizationId", "chunkIndex", content, department, embedding, tsv, metadata, "createdAt"
-          )
-          VALUES ${valueClauses.join(',\n')}
-        `;
+        await tx.document.update({
+          where: { id: documentId },
+          data: {
+            status: IngestionStatus.INDEXED,
+            errorMessage: null,
+          },
+        });
+      };
 
-        await this.prisma.client.$executeRawUnsafe(batchSql, ...params);
+      if (typeof (this.prisma.client as any).$transaction === 'function') {
+        await (this.prisma.client as any).$transaction(persistChunksAtomically, {
+          timeout: 30000,
+        });
+      } else {
+        await persistChunksAtomically(this.prisma.client);
       }
 
-      // 7. Mark document as INDEXED
-      await this.prisma.client.document.update({
-        where: { id: documentId },
-        data: {
-          status: IngestionStatus.INDEXED,
-          errorMessage: null,
-        },
-      });
-
-      const elapsedMs = Date.now() - startTime;
+      const elapsedMs = Math.max(1, Date.now() - startTime);
       const chunksPerSec = ((chunks.length / elapsedMs) * 1000).toFixed(1);
       this.logger.log(
         `Document ${documentId} indexed: ${chunks.length} chunks in ${elapsedMs}ms (${chunksPerSec} chunks/sec).`,
@@ -123,13 +139,19 @@ export class IngestionProcessor {
     } catch (err: unknown) {
       const error = err as Error;
       this.logger.error(`Document ingestion failed for ${documentId}: ${error.message}`);
-      await this.prisma.client.document.update({
-        where: { id: documentId },
-        data: {
-          status: IngestionStatus.FAILED,
-          errorMessage: error.message,
-        },
-      });
+      try {
+        await this.prisma.client.document.update({
+          where: { id: documentId },
+          data: {
+            status: IngestionStatus.FAILED,
+            errorMessage: error.message,
+          },
+        });
+      } catch (updateErr: unknown) {
+        this.logger.error(
+          `Failed to mark document ${documentId} as FAILED: ${(updateErr as Error).message}`,
+        );
+      }
       throw error;
     }
   }

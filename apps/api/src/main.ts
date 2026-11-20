@@ -13,22 +13,24 @@ import { GlobalExceptionsFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
   const logger = new Logger('NestApplication');
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   // 1. Production HTTP Security Headers
   app.use(helmet());
 
-  // 2. Strict CORS Configuration
+  // 2. Strict CORS Configuration (never combine wildcard '*' with credentials in production)
   const allowedOrigins = process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim())
+    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
     : ['http://localhost:3000', 'http://127.0.0.1:3000'];
+
+  const allowWildcard = process.env.NODE_ENV !== 'production' && allowedOrigins.includes('*');
 
   app.enableCors({
     origin: (
       origin: string | undefined,
       callback: (err: Error | null, allow?: boolean) => void,
     ) => {
-      if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+      if (!origin || allowedOrigins.includes(origin) || allowWildcard) {
         callback(null, true);
       } else {
         callback(new Error(`Origin ${origin} not allowed by CORS policy`));

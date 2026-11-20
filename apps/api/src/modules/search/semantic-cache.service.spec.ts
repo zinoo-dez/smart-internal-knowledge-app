@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { Department, DocumentSource, TenantContext, UserRole } from '@knowledge/shared';
+import { ClearanceLevel, Department, DocumentSource, TenantContext, UserRole } from '@knowledge/shared';
 import { SemanticCacheService } from './semantic-cache.service';
 
 describe('SemanticCacheService (Zero-Latency Redis Semantic Vector Cache)', () => {
@@ -122,6 +122,45 @@ describe('SemanticCacheService (Zero-Latency Redis Semantic Vector Cache)', () =
       );
 
       expect(hrMatch).toBeNull();
+    });
+
+    it('should isolate cached answers by clearanceLevel and bypass cache when matter ethical walls apply', async () => {
+      const vec = new Array(768).fill(0.3);
+      const restrictedAdmin: TenantContext = {
+        organizationId: 'org-test-cache',
+        userId: 'user-exec-1',
+        userRole: UserRole.ADMIN,
+        userEmail: 'exec@company.com',
+        department: Department.ENGINEERING,
+        clearanceLevel: ClearanceLevel.RESTRICTED,
+      };
+      const internalMember: TenantContext = {
+        organizationId: 'org-test-cache',
+        userId: 'user-junior-1',
+        userRole: UserRole.MEMBER,
+        userEmail: 'junior@company.com',
+        department: Department.ENGINEERING,
+        clearanceLevel: ClearanceLevel.INTERNAL,
+      };
+      const walledUser: TenantContext = {
+        ...restrictedAdmin,
+        userId: 'user-walled',
+        deniedMatterIds: ['MATTER-999'],
+      };
+
+      await cacheService.set(
+        restrictedAdmin,
+        'M&A acquisition valuation',
+        vec,
+        'Restricted valuation details [1]',
+        [],
+      );
+
+      // Lower clearance member in same department MUST NOT hit RESTRICTED cache
+      expect(await cacheService.get(internalMember, 'M&A acquisition valuation', vec)).toBeNull();
+
+      // User with matter-level ethical walls MUST bypass shared cache
+      expect(await cacheService.get(walledUser, 'M&A acquisition valuation', vec)).toBeNull();
     });
   });
 

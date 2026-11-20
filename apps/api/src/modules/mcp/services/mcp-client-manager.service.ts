@@ -31,15 +31,16 @@ export class McpClientManagerService {
           };
         }
 
-        this.mcpService.validateRemoteUrl(req.endpointUrl);
+        await this.mcpService.validateRemoteUrlWithDns(req.endpointUrl);
 
-        // Attempt live HTTP/SSE ping with 5-second timeout
+        // Attempt live HTTP/SSE ping with 5-second timeout & SSRF redirect protection
         try {
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 5000);
 
           const response = await fetch(req.endpointUrl, {
             method: 'GET',
+            redirect: 'error',
             headers: {
               Accept: 'text/event-stream, application/json',
               ...(req.headers || {}),
