@@ -163,12 +163,16 @@ export default function ChatPage() {
   const [lockedNotice, setLockedNotice] = useState<string | null>(null);
 
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const bottomOmniboxRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Close model dropdown on click outside
+  // Close model dropdown on click outside (covers both welcome-state and active-state omniboxes)
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (modelDropdownRef.current && !modelDropdownRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      const inTop = modelDropdownRef.current?.contains(target);
+      const inBottom = bottomOmniboxRef.current?.contains(target);
+      if (!inTop && !inBottom) {
         setIsModelDropdownOpen(false);
       }
     };
@@ -361,6 +365,18 @@ export default function ChatPage() {
     setIsStreaming(true);
 
     try {
+      // Guard: browsers block HTTP fetches from HTTPS pages (Mixed Content).
+      // Jump straight to the demo fallback rather than letting the browser throw
+      // an opaque network error that obscures the root cause.
+      const isSecurePage =
+        typeof window !== 'undefined' && window.location.protocol === 'https:';
+      const isInsecureApi = API_BASE_URL.startsWith('http:') && !API_BASE_URL.startsWith('https:');
+      if (isSecurePage && isInsecureApi) {
+        throw new Error(
+          'Mixed content: HTTPS page cannot fetch from HTTP API. Falling back to demo mode.',
+        );
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/chat/stream`, {
         method: 'POST',
         headers: {
@@ -858,12 +874,12 @@ export default function ChatPage() {
                 )}
               </span>
             </button>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <Bot className="w-4 h-4 text-blue-600 shrink-0" aria-hidden="true" />
-              <span className="text-xs font-semibold text-slate-800 tracking-tight">
+              <span className="text-xs font-semibold text-slate-800 tracking-tight truncate">
                 {t.appTitle}
               </span>
-              <span className="hidden md:inline-block text-[11px] text-slate-400 font-normal">
+              <span className="hidden md:inline-block text-[11px] text-slate-400 font-normal shrink-0">
                 · {selectedModel.name}
               </span>
             </div>
@@ -916,7 +932,7 @@ export default function ChatPage() {
                     <Plus className="w-4 h-4" aria-hidden="true" />
                   </button>
 
-                  {/* Input Query */}
+                  {/* Input Query — welcome state */}
                   <input
                     type="text"
                     aria-label={t.inputPlaceholder}
@@ -924,11 +940,11 @@ export default function ChatPage() {
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     disabled={isStreaming}
-                    className="flex-1 bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 text-base py-2 min-w-0"
+                    className="flex-1 w-0 bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 text-sm sm:text-base py-2 min-w-0"
                     autoFocus
                   />
 
-                  {/* Model Selector Inline Pill */}
+                  {/* Model Selector Inline Pill — welcome state */}
                   <div className="relative">
                     <button
                       type="button"
@@ -938,7 +954,7 @@ export default function ChatPage() {
                       onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
                       className="rounded-full bg-slate-100/90 hover:bg-slate-200/80 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-slate-700 flex items-center gap-1 sm:gap-1.5 transition-colors shrink-0 border border-slate-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                     >
-                      <span>{selectedModel.shortLabel}</span>
+                      <span className="max-w-[36px] sm:max-w-none truncate">{selectedModel.shortLabel}</span>
                       <ChevronDown
                         aria-hidden="true"
                         className={`w-3.5 h-3.5 text-slate-500 transition-transform ${
@@ -1085,6 +1101,18 @@ export default function ChatPage() {
                         : 'bg-white border border-slate-200 text-slate-800 rounded-tl-none shadow-xs'
                     }`}
                   >
+                    {/* Typing dots: shown while streaming with no content yet */}
+                    {msg.role === 'assistant' && !msg.content && !msg.activeTool && isStreaming && (
+                      <div
+                        role="status"
+                        aria-label="Assistant is thinking"
+                        className="flex items-center gap-1.5 py-1 px-0.5"
+                      >
+                        <span className="w-2 h-2 rounded-full bg-slate-300 animate-bounce [animation-delay:-300ms]" />
+                        <span className="w-2 h-2 rounded-full bg-slate-300 animate-bounce [animation-delay:-150ms]" />
+                        <span className="w-2 h-2 rounded-full bg-slate-300 animate-bounce" />
+                      </div>
+                    )}
                     {/* Live MCP Tool Execution Pill & Accordion */}
                     {msg.activeTool && (
                       <div className="mb-3">
@@ -1253,8 +1281,8 @@ export default function ChatPage() {
                       </div>
                     )}
 
-                    {/* Assistant Message Actions & Feedback */}
-                    {msg.role === 'assistant' && (
+                    {/* Assistant Message Actions & Feedback — only shown once content is available */}
+                    {msg.role === 'assistant' && msg.content && (
                       <div className="mt-3 pt-2.5 flex items-center justify-between text-xs text-slate-400 border-t border-slate-100">
                         <div className="flex items-center gap-2">
                           <button
@@ -1307,7 +1335,7 @@ export default function ChatPage() {
 
             {/* Bottom Docked Floating Omnibox */}
             <div className="p-2 sm:p-3 pb-safe bg-gradient-to-t from-white via-white/95 to-transparent shrink-0">
-              <div className="w-full max-w-3xl mx-auto relative px-1 sm:px-0" ref={modelDropdownRef}>
+              <div className="w-full max-w-3xl mx-auto relative px-1 sm:px-0" ref={bottomOmniboxRef}>
                 <form
                   role="search"
                   aria-label="Internal Knowledge Search"
@@ -1328,7 +1356,7 @@ export default function ChatPage() {
                       <Plus className="w-4 h-4" aria-hidden="true" />
                     </button>
 
-                    {/* Input Query */}
+                    {/* Input Query — active/docked state */}
                     <input
                       type="text"
                       aria-label={t.inputPlaceholder}
@@ -1336,11 +1364,11 @@ export default function ChatPage() {
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       disabled={isStreaming}
-                      className="flex-1 bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 text-base py-2 min-w-0"
+                      className="flex-1 w-0 bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 text-sm sm:text-base py-2 min-w-0"
                       autoFocus
                     />
 
-                    {/* Model Selector Inline Pill */}
+                    {/* Model Selector Inline Pill — active/docked state */}
                     <div className="relative">
                       <button
                         type="button"
@@ -1350,7 +1378,7 @@ export default function ChatPage() {
                         onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
                         className="rounded-full bg-slate-100/90 hover:bg-slate-200/80 px-2.5 sm:px-3 py-1.5 text-xs font-semibold text-slate-700 flex items-center gap-1 sm:gap-1.5 transition-colors shrink-0 border border-slate-200/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
                       >
-                        <span>{selectedModel.shortLabel}</span>
+                        <span className="max-w-[36px] sm:max-w-none truncate">{selectedModel.shortLabel}</span>
                         <ChevronDown
                           aria-hidden="true"
                           className={`w-3.5 h-3.5 text-slate-500 transition-transform ${
