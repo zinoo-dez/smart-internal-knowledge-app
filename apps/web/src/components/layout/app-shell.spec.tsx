@@ -1,6 +1,6 @@
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { LanguageProvider } from '@/context/language-context';
 import { markOfflineDemoMode } from '@/lib/api-client';
@@ -68,6 +68,27 @@ describe('AppShell', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent(/Offline Demo Mode/i);
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss offline notice' }));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('automatically clears the Offline Demo Mode banner once backend connectivity recovers', () => {
+    mockUsePathname.mockReturnValue('/chat');
+    markOfflineDemoMode(true);
+
+    render(
+      <LanguageProvider>
+        <AppShell>
+          <div>Chat</div>
+        </AppShell>
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent(/Offline Demo Mode/i);
+
+    act(() => {
+      markOfflineDemoMode(false);
+    });
+
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 });

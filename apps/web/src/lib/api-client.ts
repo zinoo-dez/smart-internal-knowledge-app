@@ -222,14 +222,22 @@ async function apiFetch(
     clearDemoSessionCache();
     const refreshedHeaders = await getAuthHeaders(includeJsonContentType);
     if (refreshedHeaders['Authorization']) {
-      return fetch(`${API_BASE_URL}${path}`, {
+      const retryRes = await fetch(`${API_BASE_URL}${path}`, {
         ...options,
         headers: {
           ...refreshedHeaders,
           ...(options.headers || {}),
         },
       });
+      if (retryRes.ok) {
+        markOfflineDemoMode(false);
+      }
+      return retryRes;
     }
+  }
+
+  if (res.ok) {
+    markOfflineDemoMode(false);
   }
 
   return res;
@@ -308,10 +316,12 @@ export async function createDocument(
 export async function uploadDocumentFile(
   file: File,
   title?: string,
+  department?: Department,
 ): Promise<IngestDocumentResponse> {
   const formData = new FormData();
   formData.append('file', file);
   if (title) formData.append('title', title);
+  if (department) formData.append('department', department);
 
   const res = await apiFetch(
     '/api/documents/upload/file',
@@ -658,7 +668,33 @@ export function getExportAuditLogsUrl(params?: QueryAuditLogsParams): string {
   if (params?.search) query.set('search', params.search);
   if (params?.startDate) query.set('startDate', params.startDate);
   if (params?.endDate) query.set('endDate', params.endDate);
-  return `${API_BASE_URL}/api/admin/audit-logs/export?${query.toString()}`;
+  const qs = query.toString();
+  return `${API_BASE_URL}/api/admin/audit-logs/export${qs ? `?${qs}` : ''}`;
+}
+
+export async function exportAuditLogsCsv(
+  params?: QueryAuditLogsParams,
+): Promise<{ blob: Blob; filename: string }> {
+  const query = new URLSearchParams();
+  if (params?.action) query.set('action', params.action);
+  if (params?.search) query.set('search', params.search);
+  if (params?.startDate) query.set('startDate', params.startDate);
+  if (params?.endDate) query.set('endDate', params.endDate);
+  const qs = query.toString();
+  const path = `/api/admin/audit-logs/export${qs ? `?${qs}` : ''}`;
+
+  const res = await apiFetch(path, { method: 'GET', cache: 'no-store' }, false);
+  if (!res.ok) {
+    throw new Error(`Audit CSV export failed: HTTP ${res.status}`);
+  }
+
+  const disposition = res.headers?.get?.('content-disposition') || '';
+  const match = disposition.match(/filename="([^"]+)"/i);
+  const fallbackName = `audit-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+  const filename = match?.[1] ? match[1].replace(/[^a-zA-Z0-9._-]/g, '_') : fallbackName;
+  const blob = await res.blob();
+
+  return { blob, filename };
 }
 
 export async function fetchBillingUsage(): Promise<TenantUsageSummary> {

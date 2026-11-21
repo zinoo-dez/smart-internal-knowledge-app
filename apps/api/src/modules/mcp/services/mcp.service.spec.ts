@@ -172,9 +172,85 @@ describe('McpService & McpClientManagerService', () => {
       expect(activeTools.length).toBeGreaterThan(0);
       expect(activeTools.every((t) => t.isEnabled)).toBe(true);
     });
+
+    it('should return empty array without mock server leakage in strict production when DB has no servers', async () => {
+      const origEnv = process.env.NODE_ENV;
+      const origDemo = process.env.DEMO_AUTH_ENABLED;
+      process.env.NODE_ENV = 'production';
+      process.env.DEMO_AUTH_ENABLED = 'false';
+
+      try {
+        const servers = await mcpService.listServers(mockTenant);
+        expect(servers).toEqual([]);
+      } finally {
+        process.env.NODE_ENV = origEnv;
+        if (origDemo === undefined) {
+          delete process.env.DEMO_AUTH_ENABLED;
+        } else {
+          process.env.DEMO_AUTH_ENABLED = origDemo;
+        }
+      }
+    });
+
+    it('should toggle shared-default demo server tools cleanly even when Prisma mcpTool.findFirst returns null', async () => {
+      const onlinePrisma: any = {
+        client: {
+          mcpServer: {
+            findMany: () => Promise.resolve([]),
+            findFirst: () => Promise.resolve(null),
+          },
+          mcpTool: {
+            findFirst: () => Promise.resolve(null),
+            update: () => Promise.reject(new Error('Should not update DB for shared-default seed')),
+          },
+        },
+      };
+      const serviceWithOnlineDb = new McpService(onlinePrisma);
+      const updated = await serviceWithOnlineDb.toggleTool(
+        mockTenant,
+        'mcp-neon-postgres',
+        'neon-tool-run-sql',
+        { isEnabled: false },
+      );
+
+      expect(updated.id).toBe('neon-tool-run-sql');
+      expect(updated.isEnabled).toBe(false);
+    });
+
+    it('should assign unique UUIDs to rapidly created MCP servers without timestamp collision', async () => {
+      const [s1, s2] = await Promise.all([
+        mcpService.createServer(mockTenant, {
+          name: 'Server One',
+          transport: McpTransport.SSE,
+          endpointUrl: 'https://mcp1.example.com/sse',
+        }),
+        mcpService.createServer(mockTenant, {
+          name: 'Server Two',
+          transport: McpTransport.SSE,
+          endpointUrl: 'https://mcp2.example.com/sse',
+        }),
+      ]);
+      expect(s1.id).not.toBe(s2.id);
+    });
   });
 
   describe('McpClientManager Tool Execution & Ping', () => {
+    it('should execute built-in mcp-jira-service demo handler without remote SSE failure', async () => {
+      const execResult = await clientManager.executeTool(
+        {
+          serverId: 'mcp-jira-service',
+          toolName: 'jira_lookup_ticket',
+          arguments: { ticketKey: 'PROD-404' },
+        },
+        {
+          transport: McpTransport.SSE,
+          endpointUrl: 'https://jira.company.internal/mcp/sse',
+        },
+      );
+
+      expect(execResult.toolName).toBe('jira_lookup_ticket');
+      expect((execResult.result as { key: string }).key).toBe('PROD-404');
+    });
     it('should test connection and discover tools from remote endpoint', async () => {
       const result = await clientManager.testConnection({
         transport: McpTransport.SSE,

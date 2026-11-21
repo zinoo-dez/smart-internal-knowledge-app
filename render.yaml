@@ -5,6 +5,7 @@ services:
     plan: free
     region: oregon
     buildCommand: npm install --include=dev && npm run db:generate --workspace=@knowledge/database && npm run build --workspace=@knowledge/shared && npm run build --workspace=@knowledge/database && npm run build --workspace=@knowledge/api
+    preDeployCommand: npm run db:migrate:deploy --workspace=@knowledge/database || npm run db:push --workspace=@knowledge/database
     startCommand: node apps/api/dist/main.js
     healthCheckPath: /health
     autoDeploy: true

@@ -189,4 +189,55 @@ describe('FeedbackService', () => {
       data: { assignedTo: 'sarah.lead@company.com' },
     });
   });
+
+  it('should return honest 0 metrics on an empty workspace instead of fabricated defaults', async () => {
+    mockPrisma.client.queryLog.count.mockResolvedValue(0);
+    mockPrisma.client.document.count.mockResolvedValue(0);
+    mockPrisma.client.queryLog.aggregate
+      .mockResolvedValueOnce({ _sum: { totalTokens: null } })
+      .mockResolvedValueOnce({ _avg: { faithfulnessScore: null } });
+    mockPrisma.client.feedback.findMany.mockResolvedValue([]);
+    mockPrisma.client.queryLog.groupBy.mockResolvedValue([]);
+
+    const summary = await service.getAnalyticsSummary(tenantA);
+    expect(summary.totalQueries).toBe(0);
+    expect(summary.satisfactionRate).toBe(0);
+    expect(summary.faithfulnessScore).toBe(0);
+  });
+
+  it('should cluster duplicate unresolved queries and aggregate real frequency counts', async () => {
+    mockPrisma.client.queryLog.findMany.mockResolvedValue([
+      {
+        id: 'gap-a1',
+        query: '  How to request VPN access? ',
+        gapCategory: 'IT & Infrastructure',
+        createdAt: new Date('2026-01-03T10:00:00Z'),
+        resolvedAt: null,
+        user: { email: 'alice@company.com' },
+      },
+      {
+        id: 'gap-a2',
+        query: 'how to request   vpn access?',
+        gapCategory: 'IT & Infrastructure',
+        createdAt: new Date('2026-01-03T11:00:00Z'),
+        resolvedAt: null,
+        user: { email: 'bob@company.com' },
+      },
+      {
+        id: 'gap-b1',
+        query: 'Parental leave policy',
+        gapCategory: 'HR & Policies',
+        createdAt: new Date('2026-01-03T12:00:00Z'),
+        resolvedAt: null,
+        user: { email: 'carol@company.com' },
+      },
+    ]);
+
+    const res = await service.getKnowledgeGaps(tenantA);
+    expect(res.totalGaps).toBe(3);
+    expect(res.gaps).toHaveLength(2);
+    expect(res.gaps[0].query.trim()).toBe('How to request VPN access?');
+    expect(res.gaps[0].frequency).toBe(2);
+    expect(res.gaps[1].frequency).toBe(1);
+  });
 });

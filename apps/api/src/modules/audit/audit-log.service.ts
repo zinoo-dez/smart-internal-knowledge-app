@@ -43,9 +43,10 @@ export class AuditLogService {
   async getAuditLogs(
     tenant: TenantContext,
     query: QueryAuditLogsDto,
+    maxLimit = 100,
   ): Promise<PaginatedAuditLogsResponse> {
     const page = query.page && query.page > 0 ? query.page : 1;
-    const limit = query.limit && query.limit > 0 && query.limit <= 100 ? query.limit : 25;
+    const limit = query.limit && query.limit > 0 && query.limit <= maxLimit ? query.limit : 25;
     const skip = (page - 1) * limit;
 
     const where: Record<string, unknown> = {
@@ -85,11 +86,34 @@ export class AuditLogService {
     }
 
     const db =
-      typeof (this.prisma as any).forTenant === 'function'
-        ? (this.prisma as any).forTenant(tenant.organizationId)
+      typeof (this.prisma as unknown as { forTenant?: (orgId: string) => unknown }).forTenant === 'function'
+        ? (this.prisma as unknown as { forTenant: (orgId: string) => typeof this.prisma.client }).forTenant(
+            tenant.organizationId,
+          )
         : this.prisma.client;
 
-    const [total, logs] = await Promise.all([
+    const auditModel = db.auditLog as unknown as {
+      count: typeof db.auditLog.count;
+      findMany: typeof db.auditLog.findMany;
+      groupBy?: (args: {
+        by: ['action'];
+        where: { organizationId: string };
+        _count: { _all: true };
+      }) => Promise<Array<{ action: string; _count: { _all: number } }>>;
+    };
+
+    const actionGroupsPromise =
+      typeof auditModel.groupBy === 'function'
+        ? auditModel
+            .groupBy({
+              by: ['action'],
+              where: { organizationId: tenant.organizationId },
+              _count: { _all: true },
+            })
+            .catch(() => null)
+        : Promise.resolve(null);
+
+    const [total, logs, actionGroups] = await Promise.all([
       db.auditLog.count({ where }),
       db.auditLog.findMany({
         where,
@@ -105,9 +129,21 @@ export class AuditLogService {
           },
         },
       }),
+      actionGroupsPromise,
     ]);
 
-    const items: AuditLogItem[] = logs.map((log: any) => ({
+    const items: AuditLogItem[] = (
+      logs as Array<{
+        id: string;
+        organizationId: string;
+        userId: string;
+        action: string;
+        resource: string;
+        details: unknown;
+        createdAt: Date;
+        user?: { email?: string | null; name?: string | null } | null;
+      }>
+    ).map((log) => ({
       id: log.id,
       organizationId: log.organizationId,
       userId: log.userId,
@@ -119,12 +155,37 @@ export class AuditLogService {
       createdAt: log.createdAt.toISOString(),
     }));
 
+    let summary: PaginatedAuditLogsResponse['summary'];
+    if (Array.isArray(actionGroups)) {
+      let piiRedactions = 0;
+      let documentOperations = 0;
+      let governanceActions = 0;
+      for (const row of actionGroups) {
+        const count = row._count?._all ?? 0;
+        if (row.action === AuditAction.PII_FLAGGED) {
+          piiRedactions += count;
+        } else if (
+          row.action === AuditAction.DOCUMENT_INGESTED ||
+          row.action === AuditAction.DOCUMENT_DELETED
+        ) {
+          documentOperations += count;
+        } else if (
+          row.action === AuditAction.KNOWLEDGE_GAP_RESOLVED ||
+          row.action === AuditAction.KNOWLEDGE_GAP_ASSIGNED
+        ) {
+          governanceActions += count;
+        }
+      }
+      summary = { piiRedactions, documentOperations, governanceActions };
+    }
+
     return {
       items,
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit) || 1,
+      ...(summary ? { summary } : {}),
     };
   }
 
@@ -135,11 +196,16 @@ export class AuditLogService {
     tenant: TenantContext,
     query: QueryAuditLogsDto,
   ): Promise<string> {
-    const response = await this.getAuditLogs(tenant, {
-      ...query,
-      page: 1,
-      limit: 100, // Export batch limit per compliance download
-    });
+    const EXPORT_MAX_ROWS = 1000;
+    const response = await this.getAuditLogs(
+      tenant,
+      {
+        ...query,
+        page: 1,
+        limit: EXPORT_MAX_ROWS,
+      },
+      EXPORT_MAX_ROWS,
+    );
 
     const headers = ['Timestamp', 'Action', 'Resource', 'User Email', 'User Name', 'Details'];
     const rows = response.items.map((item) => [

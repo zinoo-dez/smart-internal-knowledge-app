@@ -113,12 +113,11 @@ export class FeedbackService {
     }
 
     const satisfactionRate =
-      totalFeedbackCount > 0 ? Math.round((thumbsUpCount / totalFeedbackCount) * 100) : 100;
+      totalFeedbackCount > 0 ? Math.round((thumbsUpCount / totalFeedbackCount) * 100) : 0;
 
     const avgScore = faithfulnessAgg?._avg?.faithfulnessScore;
-    const faithfulnessScore = avgScore !== null && avgScore !== undefined
-      ? Math.round(avgScore * 1000) / 10
-      : 98.6;
+    const faithfulnessScore =
+      avgScore !== null && avgScore !== undefined ? Math.round(avgScore * 1000) / 10 : 0;
 
     const cacheStats = this.semanticCacheService
       ? this.semanticCacheService.getStats(orgId)
@@ -165,30 +164,41 @@ export class FeedbackService {
     });
 
     const categoryCounts: Record<string, number> = {};
+    const clusteredByQuery = new Map<string, KnowledgeGapItem>();
 
-    const gaps: KnowledgeGapItem[] = unresolvedLogs.map((log) => {
+    for (const log of unresolvedLogs) {
       const cat = log.gapCategory || 'General Knowledge';
       categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
 
-      return {
-        id: log.id,
-        query: log.query,
-        category: cat,
-        frequency: 1,
-        userEmail: log.user?.email || 'unknown@company.com',
-        createdAt: log.createdAt.toISOString(),
-        status: log.resolvedAt ? 'RESOLVED' : 'UNRESOLVED',
-        assignedTo: log.assignedTo ?? undefined,
-        resolutionNote: log.resolutionNote ?? undefined,
-      };
-    });
+      const normalizedKey = log.query.trim().toLowerCase().replace(/\s+/g, ' ');
+      const existing = clusteredByQuery.get(normalizedKey);
+      if (existing) {
+        existing.frequency += 1;
+      } else {
+        clusteredByQuery.set(normalizedKey, {
+          id: log.id,
+          query: log.query,
+          category: cat,
+          frequency: 1,
+          userEmail: log.user?.email || 'unknown@company.com',
+          createdAt: log.createdAt.toISOString(),
+          status: log.resolvedAt ? 'RESOLVED' : 'UNRESOLVED',
+          assignedTo: log.assignedTo ?? undefined,
+          resolutionNote: log.resolutionNote ?? undefined,
+        });
+      }
+    }
+
+    const gaps = Array.from(clusteredByQuery.values()).sort(
+      (a, b) => b.frequency - a.frequency,
+    );
 
     const topCategories = Object.entries(categoryCounts)
       .map(([category, count]) => ({ category, count }))
       .sort((a, b) => b.count - a.count);
 
     return {
-      totalGaps: gaps.length,
+      totalGaps: unresolvedLogs.length,
       topCategories,
       gaps,
     };

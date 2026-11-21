@@ -9,6 +9,7 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
 dotenv.config({ path: path.resolve(__dirname, '../../../.env'), override: true });
 
 import { AppModule } from './app.module';
+import { createCorsOriginValidator } from './common/config/cors.config';
 import { GlobalExceptionsFilter } from './common/filters/http-exception.filter';
 
 async function bootstrap() {
@@ -19,23 +20,8 @@ async function bootstrap() {
   app.use(helmet());
 
   // 2. Strict CORS Configuration (never combine wildcard '*' with credentials in production)
-  const allowedOrigins = process.env.ALLOWED_ORIGINS
-    ? process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean)
-    : ['http://localhost:3000', 'http://127.0.0.1:3000'];
-
-  const allowWildcard = process.env.NODE_ENV !== 'production' && allowedOrigins.includes('*');
-
   app.enableCors({
-    origin: (
-      origin: string | undefined,
-      callback: (err: Error | null, allow?: boolean) => void,
-    ) => {
-      if (!origin || allowedOrigins.includes(origin) || allowWildcard) {
-        callback(null, true);
-      } else {
-        callback(new Error(`Origin ${origin} not allowed by CORS policy`));
-      }
-    },
+    origin: createCorsOriginValidator(process.env.ALLOWED_ORIGINS, process.env.NODE_ENV),
     credentials: true,
   });
 

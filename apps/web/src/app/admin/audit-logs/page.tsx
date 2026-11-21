@@ -15,11 +15,13 @@ import {
 } from 'lucide-react';
 import { AuditLogItem, PaginatedAuditLogsResponse } from '@knowledge/shared';
 import { Column, DataTable } from '@/components/ui/data-table';
-import { fetchAuditLogs, getExportAuditLogsUrl } from '@/lib/api-client';
+import { exportAuditLogsCsv, fetchAuditLogs } from '@/lib/api-client';
 
 export default function AuditLogsPage() {
   const [data, setData] = useState<PaginatedAuditLogsResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedAction, setSelectedAction] = useState<string>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
@@ -52,26 +54,45 @@ export default function AuditLogsPage() {
     loadLogs(1);
   };
 
-  const handleExportCsv = () => {
-    const url = getExportAuditLogsUrl({
-      action: selectedAction === 'ALL' ? undefined : selectedAction,
-      search: searchTerm.trim() || undefined,
-    });
-    window.open(url, '_blank');
+  const handleExportCsv = async () => {
+    setIsExporting(true);
+    setExportError(null);
+    try {
+      const { blob, filename } = await exportAuditLogsCsv({
+        action: selectedAction === 'ALL' ? undefined : selectedAction,
+        search: searchTerm.trim() || undefined,
+      });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      console.error('Failed to export audit logs CSV:', err);
+      setExportError('Failed to export compliance CSV. Please verify your session and retry.');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const items = data?.items || [];
   const totalLogs = data?.total || 0;
   const totalPages = data?.totalPages || 1;
 
-  // Aggregate high-level stats from current view
-  const piiRedactionsCount = items.filter((i) => i.action === 'PII_FLAGGED').length;
-  const docOperationsCount = items.filter(
-    (i) => i.action === 'DOCUMENT_INGESTED' || i.action === 'DOCUMENT_DELETED',
-  ).length;
-  const governanceCount = items.filter(
-    (i) => i.action === 'KNOWLEDGE_GAP_RESOLVED' || i.action === 'KNOWLEDGE_GAP_ASSIGNED',
-  ).length;
+  // Prefer real organization-wide counts from backend summary; fall back to current page in offline seed mode
+  const piiRedactionsCount =
+    data?.summary?.piiRedactions ?? items.filter((i) => i.action === 'PII_FLAGGED').length;
+  const docOperationsCount =
+    data?.summary?.documentOperations ??
+    items.filter((i) => i.action === 'DOCUMENT_INGESTED' || i.action === 'DOCUMENT_DELETED').length;
+  const governanceCount =
+    data?.summary?.governanceActions ??
+    items.filter(
+      (i) => i.action === 'KNOWLEDGE_GAP_RESOLVED' || i.action === 'KNOWLEDGE_GAP_ASSIGNED',
+    ).length;
 
   const renderActionBadge = (action: string) => {
     let colorClasses = 'bg-slate-100 text-slate-700 border-slate-200';
@@ -174,13 +195,31 @@ export default function AuditLogsPage() {
           </button>
           <button
             onClick={handleExportCsv}
-            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm min-h-[40px]"
+            disabled={isExporting}
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60 transition-colors shadow-sm min-h-[40px]"
           >
             <Download className="w-4 h-4" />
-            <span>Export Compliance CSV</span>
+            <span>{isExporting ? 'Exporting...' : 'Export Compliance CSV'}</span>
           </button>
         </div>
       </div>
+
+      {exportError && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-2 px-4 py-2.5 text-xs font-medium text-rose-800 bg-rose-50 border border-rose-200 rounded-lg"
+        >
+          <span>{exportError}</span>
+          <button
+            type="button"
+            onClick={() => setExportError(null)}
+            aria-label="Dismiss export error"
+            className="p-1 text-rose-600 hover:bg-rose-100 rounded"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Overview Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

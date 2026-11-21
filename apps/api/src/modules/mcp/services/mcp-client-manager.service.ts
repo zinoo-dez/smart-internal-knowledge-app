@@ -19,7 +19,7 @@ export interface McpRemoteExecutionContext {
 const BUILTIN_DEMO_SERVER_IDS = new Set([
   'mcp-neon-postgres',
   'mcp-github-enterprise',
-  'mcp-jira-cloud',
+  'mcp-jira-service',
 ]);
 
 const FORBIDDEN_HEADERS = new Set([

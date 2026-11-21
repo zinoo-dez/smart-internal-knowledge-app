@@ -7,35 +7,63 @@ import {
 } from '@knowledge/shared';
 import { PrismaService } from '../prisma/prisma.service';
 
+interface CachedTenantTier {
+  tier: SubscriptionTier;
+  expiresAtMs: number;
+}
+
 @Injectable()
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
-  // In-memory write-through cache backed by Organization.subscriptionTier in PostgreSQL
-  private readonly tenantTiers = new Map<string, SubscriptionTier>();
+  // Short-lived TTL write-through cache backed by Organization.subscriptionTier in PostgreSQL
+  private readonly tenantTiers = new Map<string, CachedTenantTier>();
+  private readonly TIER_CACHE_TTL_MS = 60_000;
 
   constructor(private readonly prisma: PrismaService) {}
 
   public getTenantTier(organizationId: string): SubscriptionTier {
-    return this.tenantTiers.get(organizationId) || SubscriptionTier.PRO;
+    const entry = this.tenantTiers.get(organizationId);
+    if (entry && entry.expiresAtMs > Date.now()) {
+      return entry.tier;
+    }
+    return SubscriptionTier.PRO;
   }
 
   public setTenantTier(organizationId: string, tier: SubscriptionTier): void {
-    this.tenantTiers.set(organizationId, tier);
+    this.tenantTiers.set(organizationId, {
+      tier,
+      expiresAtMs: Date.now() + this.TIER_CACHE_TTL_MS,
+    });
     this.logger.log(`Tenant ${organizationId} subscription updated to: ${tier}`);
   }
 
   private async resolvePersistedTier(organizationId: string): Promise<SubscriptionTier> {
     const cached = this.tenantTiers.get(organizationId);
-    if (cached) return cached;
+    if (cached && cached.expiresAtMs > Date.now()) {
+      return cached.tier;
+    }
 
     try {
-      const org = await (this.prisma.client as any)?.organization?.findUnique?.({
+      const org = await (this.prisma.client as unknown as {
+        organization?: {
+          findUnique?: (args: {
+            where: { id: string };
+            select: { subscriptionTier: true };
+          }) => Promise<{ subscriptionTier?: string | null } | null>;
+        };
+      })?.organization?.findUnique?.({
         where: { id: organizationId },
         select: { subscriptionTier: true },
       });
-      if (org?.subscriptionTier && Object.values(SubscriptionTier).includes(org.subscriptionTier)) {
+      if (
+        org?.subscriptionTier &&
+        Object.values(SubscriptionTier).includes(org.subscriptionTier as SubscriptionTier)
+      ) {
         const tier = org.subscriptionTier as SubscriptionTier;
-        this.tenantTiers.set(organizationId, tier);
+        this.tenantTiers.set(organizationId, {
+          tier,
+          expiresAtMs: Date.now() + this.TIER_CACHE_TTL_MS,
+        });
         return tier;
       }
     } catch {
@@ -50,8 +78,10 @@ export class BillingService {
     const quota = SUBSCRIPTION_TIERS[tier];
 
     const now = new Date();
-    const periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+    const periodEnd = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999),
+    );
 
     let queryCount: number;
     let tokenCount: number;
@@ -151,22 +181,51 @@ export class BillingService {
     return { allowed: true };
   }
 
+  async checkDocumentQuota(tenant: TenantContext): Promise<{ allowed: boolean; reason?: string }> {
+    const usage = await this.getTenantUsage(tenant);
+    if (usage.documentCount >= usage.documentLimit) {
+      return {
+        allowed: false,
+        reason: `Document storage quota exceeded for ${usage.tier} tier (${usage.documentCount}/${usage.documentLimit} documents). Please delete older documents or upgrade your subscription.`,
+      };
+    }
+    return { allowed: true };
+  }
+
   async upgradeSubscription(
     tenant: TenantContext,
     targetTier: SubscriptionTier,
   ): Promise<{ success: boolean; message: string; tier: SubscriptionTier }> {
-    this.setTenantTier(tenant.organizationId, targetTier);
+    const isStrictProduction =
+      process.env.NODE_ENV === 'production' && process.env.DEMO_AUTH_ENABLED !== 'true';
 
     try {
-      await (this.prisma.client as any)?.organization?.update?.({
+      await (this.prisma.client as unknown as {
+        organization?: {
+          update?: (args: {
+            where: { id: string };
+            data: { subscriptionTier: SubscriptionTier };
+          }) => Promise<unknown>;
+        };
+      })?.organization?.update?.({
         where: { id: tenant.organizationId },
         data: { subscriptionTier: targetTier },
       });
     } catch (err) {
+      if (isStrictProduction) {
+        this.logger.error(
+          `Failed to persist subscriptionTier=${targetTier} for tenant ${tenant.organizationId}: ${(err as Error).message}`,
+        );
+        throw new ServiceUnavailableException(
+          'Unable to persist subscription upgrade. Please retry shortly.',
+        );
+      }
       this.logger.debug(
         `Skipped persisting subscriptionTier to DB (offline/mock): ${(err as Error).message}`,
       );
     }
+
+    this.setTenantTier(tenant.organizationId, targetTier);
 
     return {
       success: true,

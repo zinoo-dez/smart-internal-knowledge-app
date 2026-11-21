@@ -7,6 +7,22 @@ export * from '@prisma/client';
 let sharedPool: pg.Pool | null = null;
 let sharedPrisma: PrismaClient | null = null;
 
+function attachPoolDisconnect(client: PrismaClient, pool: pg.Pool): PrismaClient {
+  const originalDisconnect = client.$disconnect.bind(client);
+  let poolEnded = false;
+  client.$disconnect = async () => {
+    try {
+      await originalDisconnect();
+    } finally {
+      if (!poolEnded) {
+        poolEnded = true;
+        await pool.end().catch(() => {});
+      }
+    }
+  };
+  return client;
+}
+
 export function createPrismaClient(connectionString?: string): PrismaClient {
   const url = connectionString || process.env.DATABASE_URL;
   const pool = new pg.Pool({
@@ -16,7 +32,7 @@ export function createPrismaClient(connectionString?: string): PrismaClient {
     connectionTimeoutMillis: 5000,
   });
   const adapter = new PrismaPg(pool);
-  return new PrismaClient({ adapter });
+  return attachPoolDisconnect(new PrismaClient({ adapter }), pool);
 }
 
 /**
@@ -33,7 +49,7 @@ export function getPrismaClient(): PrismaClient {
       connectionTimeoutMillis: 5000,
     });
     const adapter = new PrismaPg(sharedPool);
-    sharedPrisma = new PrismaClient({ adapter });
+    sharedPrisma = attachPoolDisconnect(new PrismaClient({ adapter }), sharedPool);
   }
   return sharedPrisma;
 }

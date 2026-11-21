@@ -13,6 +13,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import {
+  Department,
   DocumentSummary,
   IngestDocumentResponse,
   TenantContext,
@@ -41,13 +42,17 @@ export class DocumentsController {
     @CurrentTenant() tenant: TenantContext,
     @UploadedFile() file: Express.Multer.File,
     @Body('title') title?: string,
+    @Body('department') department?: Department,
   ): Promise<IngestDocumentResponse> {
     if (!file) {
       throw new BadRequestException('No file provided');
     }
-    return this.documentsService.createDocumentFromFile(tenant, file, title);
+    const validDepartment =
+      department && Object.values(Department).includes(department) ? department : undefined;
+    return this.documentsService.createDocumentFromFile(tenant, file, title, validDepartment);
   }
 
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post()
   async createDocument(
     @CurrentTenant() tenant: TenantContext,

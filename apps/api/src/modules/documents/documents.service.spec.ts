@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { DocumentsService } from './documents.service';
-import { DocumentSource, IngestionStatus, TenantContext, UserRole } from '@knowledge/shared';
+import { Department, DocumentSource, IngestionStatus, TenantContext, UserRole } from '@knowledge/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { IngestionProcessor } from './workers/ingestion.processor';
 import { DataSanitizerService } from './services/data-sanitizer.service';
+import { BillingService } from '../billing/billing.service';
 
 describe('DocumentsService (CRUD & IDOR Security Audit)', () => {
   let service: DocumentsService;
@@ -182,5 +183,92 @@ describe('DocumentsService (CRUD & IDOR Security Audit)', () => {
         content: 'Config: AWS_KEY=[REDACTED_AWS_KEY] and SSN=[REDACTED_SSN]',
       }),
     );
+  });
+
+  it('should allow non-admin department member to upload file scoped to their own department', async () => {
+    const hrMember: TenantContext = {
+      organizationId: 'org-alpha',
+      userId: 'user-hr-1',
+      userRole: UserRole.MEMBER,
+      userEmail: 'hr@alpha.com',
+      department: Department.HR,
+    };
+
+    mockPrisma.client.document.create.mockResolvedValue({
+      id: 'doc-hr-1',
+      organizationId: 'org-alpha',
+      title: 'leave-policy.md',
+      source: DocumentSource.FILE_UPLOAD,
+      department: Department.HR,
+      status: IngestionStatus.PENDING,
+    });
+
+    const mdFile: Express.Multer.File = {
+      fieldname: 'file',
+      originalname: 'leave-policy.md',
+      encoding: '7bit',
+      mimetype: 'text/markdown',
+      size: 256,
+      buffer: Buffer.from('# Annual Leave\nEmployees receive 15 paid days.'),
+      destination: '',
+      filename: '',
+      path: '',
+      stream: null as any,
+    };
+
+    const result = await service.createDocumentFromFile(hrMember, mdFile);
+    expect(result.documentId).toBe('doc-hr-1');
+    expect(mockPrisma.client.document.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        department: Department.HR,
+      }),
+    });
+  });
+
+  it('should reject unsupported binary .docx uploads to prevent ZIP garbage ingestion', async () => {
+    const docxFile: Express.Multer.File = {
+      fieldname: 'file',
+      originalname: 'handbook.docx',
+      encoding: '7bit',
+      mimetype: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      size: 512,
+      buffer: Buffer.from('PK\x03\x04binary-zip-payload'),
+      destination: '',
+      filename: '',
+      path: '',
+      stream: null as any,
+    };
+
+    await expect(service.createDocumentFromFile(adminA, docxFile)).rejects.toThrow(
+      BadRequestException,
+    );
+  });
+
+  it('should enforce BillingService document quota and block ingestion when limit is reached', async () => {
+    const mockBilling = {
+      checkDocumentQuota: vi.fn().mockResolvedValue({
+        allowed: false,
+        reason: 'Document storage quota exceeded for FREE tier (10/10 documents).',
+      }),
+    };
+
+    const quotaService = new DocumentsService(
+      mockPrisma as PrismaService,
+      mockProcessor as IngestionProcessor,
+      dataSanitizer,
+      undefined,
+      undefined,
+      undefined,
+      mockBilling as unknown as BillingService,
+    );
+
+    await expect(
+      quotaService.createDocument(adminA, {
+        title: 'Overflow Doc',
+        source: DocumentSource.FILE_UPLOAD,
+        content: 'Blocked content',
+      }),
+    ).rejects.toThrow(ForbiddenException);
+    expect(mockPrisma.client.document.create).not.toHaveBeenCalled();
   });
 });

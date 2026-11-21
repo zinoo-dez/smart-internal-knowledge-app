@@ -159,7 +159,7 @@ export default function DocumentsPage() {
     setIsSubmitting(true);
     try {
       if (uploadMode === 'FILE' && selectedFile) {
-        await uploadDocumentFile(selectedFile, title || selectedFile.name);
+        await uploadDocumentFile(selectedFile, title || selectedFile.name, department);
       } else if (uploadMode === 'TEXT' && title.trim() && content.trim()) {
         await createDocument({
           title,
@@ -584,7 +584,7 @@ export default function DocumentsPage() {
                     <span className="text-xs text-slate-400 mt-1">
                       {selectedFile
                         ? `${(selectedFile.size / 1024).toFixed(1)} KB`
-                        : 'PDF, Markdown, or Text up to 25MB'}
+                        : 'PDF, Markdown, or Text up to 15MB'}
                     </span>
                     <input
                       id="doc-file-input"

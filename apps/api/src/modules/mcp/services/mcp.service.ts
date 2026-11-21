@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
   OnModuleInit,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
 import * as dns from 'dns/promises';
@@ -193,6 +194,10 @@ export class McpService implements OnModuleInit {
     }
   }
 
+  private isStrictProduction(): boolean {
+    return process.env.NODE_ENV === 'production' && process.env.DEMO_AUTH_ENABLED !== 'true';
+  }
+
   /**
    * List all configured MCP servers for the current tenant
    */
@@ -207,11 +212,20 @@ export class McpService implements OnModuleInit {
       if (servers && servers.length > 0) {
         return servers.map((s: any) => this.mapPrismaToSummary(s));
       }
+
+      // In strict production, an empty tenant DB returns [] rather than leaking demo mock templates
+      if (this.isStrictProduction()) {
+        return [];
+      }
     } catch (err) {
+      if (this.isStrictProduction()) {
+        this.logger.error(`Prisma mcpServer query failed in production: ${(err as Error).message}`);
+        throw new ServiceUnavailableException('MCP server registry is temporarily unavailable.');
+      }
       this.logger.debug(`Prisma mcpServer query failed, serving from memory store: ${(err as Error).message}`);
     }
 
-    // Fallback: Return deep-cloned tenant-scoped in-memory servers (prefer tenant overrides over shared-default)
+    // Fallback (dev/demo mode): Return deep-cloned tenant-scoped in-memory servers (prefer tenant overrides over shared-default)
     const resolvedById = new Map<string, McpServerSummary>();
     for (const s of this.memoryServers.values()) {
       if (s.organizationId === 'shared-default' && !resolvedById.has(s.id)) {
@@ -237,7 +251,15 @@ export class McpService implements OnModuleInit {
       });
       if (server) return this.mapPrismaToSummary(server);
     } catch (err) {
+      if (this.isStrictProduction()) {
+        this.logger.error(`Prisma findServer failed in production: ${(err as Error).message}`);
+        throw new ServiceUnavailableException('MCP server registry is temporarily unavailable.');
+      }
       this.logger.debug(`Prisma findServer failed: ${(err as Error).message}`);
+    }
+
+    if (this.isStrictProduction()) {
+      throw new NotFoundException(`MCP Server #${serverId} not found.`);
     }
 
     const memory =
@@ -265,9 +287,9 @@ export class McpService implements OnModuleInit {
       ? this.encryptSecrets({ ...dto.headers, ...dto.envSecrets })
       : null;
 
-    const serverId = `mcp-${Date.now()}`;
-    const initialTools: McpToolSummary[] = discoveredTools.map((t, idx) => ({
-      id: `tool-${Date.now()}-${idx}`,
+    const serverId = `mcp-${crypto.randomUUID()}`;
+    const initialTools: McpToolSummary[] = discoveredTools.map((t) => ({
+      id: `tool-${crypto.randomUUID()}`,
       serverId,
       name: t.name,
       description: t.description || `Tool for ${dto.name}`,
@@ -322,8 +344,12 @@ export class McpService implements OnModuleInit {
       });
       return this.mapPrismaToSummary(created);
     } catch (err) {
+      if (this.isStrictProduction()) {
+        this.logger.error(`Prisma createServer failed in production: ${(err as Error).message}`);
+        throw new ServiceUnavailableException('Unable to persist MCP server configuration.');
+      }
       this.logger.debug(`Prisma createServer failed, saving to memory fallback: ${(err as Error).message}`);
-      this.memoryServers.set(serverId, newSummary);
+      this.memoryServers.set(`${tenant.organizationId}:${serverId}`, newSummary);
       return newSummary;
     }
   }
@@ -337,52 +363,61 @@ export class McpService implements OnModuleInit {
     toolId: string,
     updates: { isEnabled?: boolean; requireApproval?: boolean },
   ): Promise<McpToolSummary> {
-    await this.findServer(tenant, serverId);
+    const serverSummary = await this.findServer(tenant, serverId);
 
-    try {
-      // IDOR defense: strictly verify tool belongs to this specific server
-      const existing = await (this.prisma.client as any).mcpTool.findFirst({
-        where: { id: toolId, serverId },
-      });
-      if (!existing) {
-        throw new NotFoundException(`Tool #${toolId} not found on server #${serverId}.`);
-      }
+    // Handle shared demo templates in memory per tenant so toggling never 404s when Prisma DB is online
+    const isMemorySeedServer =
+      !this.isStrictProduction() &&
+      (serverSummary.organizationId === 'shared-default' ||
+        this.memoryServers.has(`${tenant.organizationId}:${serverId}`) ||
+        this.memoryServers.has(serverId));
 
-      const updated = await (this.prisma.client as any).mcpTool.update({
-        where: { id: toolId },
-        data: updates,
-      });
-      return {
-        id: updated.id,
-        serverId: updated.serverId,
-        name: updated.name,
-        description: updated.description,
-        inputSchema: updated.inputSchema as any,
-        isEnabled: updated.isEnabled,
-        requireApproval: updated.requireApproval,
-        createdAt: updated.createdAt.toISOString(),
-      };
-    } catch (err: any) {
-      if (err instanceof NotFoundException) throw err;
-
-      // Memory fallback update (clone shared-default per tenant to prevent cross-tenant mutation)
-      const tenantOverrideKey = `${tenant.organizationId}:${serverId}`;
-      let server = this.memoryServers.get(tenantOverrideKey) || this.memoryServers.get(serverId);
-      if (server) {
-        if (server.organizationId === 'shared-default') {
-          server = JSON.parse(JSON.stringify(server)) as McpServerSummary;
-          server.organizationId = tenant.organizationId;
-          this.memoryServers.set(tenantOverrideKey, server);
+    if (!isMemorySeedServer) {
+      try {
+        // IDOR defense: strictly verify tool belongs to this specific server
+        const existing = await (this.prisma.client as any).mcpTool.findFirst({
+          where: { id: toolId, serverId },
+        });
+        if (!existing) {
+          throw new NotFoundException(`Tool #${toolId} not found on server #${serverId}.`);
         }
-        const tool = server.tools.find((t) => t.id === toolId);
-        if (tool) {
-          if (updates.isEnabled !== undefined) tool.isEnabled = updates.isEnabled;
-          if (updates.requireApproval !== undefined) tool.requireApproval = updates.requireApproval;
-          return { ...tool };
-        }
+
+        const updated = await (this.prisma.client as any).mcpTool.update({
+          where: { id: toolId },
+          data: updates,
+        });
+        return {
+          id: updated.id,
+          serverId: updated.serverId,
+          name: updated.name,
+          description: updated.description,
+          inputSchema: updated.inputSchema as any,
+          isEnabled: updated.isEnabled,
+          requireApproval: updated.requireApproval,
+          createdAt: updated.createdAt.toISOString(),
+        };
+      } catch (err: any) {
+        if (err instanceof NotFoundException || this.isStrictProduction()) throw err;
       }
-      throw new NotFoundException(`Tool #${toolId} not found on server #${serverId}.`);
     }
+
+    // Memory fallback update (clone shared-default per tenant to prevent cross-tenant mutation)
+    const tenantOverrideKey = `${tenant.organizationId}:${serverId}`;
+    let server = this.memoryServers.get(tenantOverrideKey) || this.memoryServers.get(serverId);
+    if (server) {
+      if (server.organizationId === 'shared-default') {
+        server = JSON.parse(JSON.stringify(server)) as McpServerSummary;
+        server.organizationId = tenant.organizationId;
+        this.memoryServers.set(tenantOverrideKey, server);
+      }
+      const tool = server.tools.find((t) => t.id === toolId);
+      if (tool) {
+        if (updates.isEnabled !== undefined) tool.isEnabled = updates.isEnabled;
+        if (updates.requireApproval !== undefined) tool.requireApproval = updates.requireApproval;
+        return { ...tool };
+      }
+    }
+    throw new NotFoundException(`Tool #${toolId} not found on server #${serverId}.`);
   }
 
   /**

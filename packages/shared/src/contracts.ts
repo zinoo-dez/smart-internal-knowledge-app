@@ -269,12 +269,19 @@ export interface QueryAuditLogsParams {
   search?: string;
 }
 
+export interface AuditLogSummaryCounts {
+  piiRedactions: number;
+  documentOperations: number;
+  governanceActions: number;
+}
+
 export interface PaginatedAuditLogsResponse {
   items: AuditLogItem[];
   total: number;
   page: number;
   limit: number;
   totalPages: number;
+  summary?: AuditLogSummaryCounts;
 }
 
 // Slack Event & Interactive Bot Contracts

@@ -23,6 +23,7 @@ import { IngestionQueueService } from './workers/ingestion-queue.service';
 import { extractTextFromPdf } from './utils/pdf-parser';
 import { DataSanitizerService } from './services/data-sanitizer.service';
 import { AuditLogService } from '../audit/audit-log.service';
+import { BillingService } from '../billing/billing.service';
 import { SemanticCacheService } from '../search/semantic-cache.service';
 
 @Injectable()
@@ -36,13 +37,14 @@ export class DocumentsService {
     @Optional() private readonly auditLogService?: AuditLogService,
     @Optional() private readonly semanticCacheService?: SemanticCacheService,
     @Optional() private readonly ingestionQueueService?: IngestionQueueService,
+    @Optional() private readonly billingService?: BillingService,
   ) {}
 
   async createDocumentFromFile(
     tenant: TenantContext,
     file: Express.Multer.File,
     title?: string,
-    department: Department = Department.ALL,
+    department?: Department,
   ): Promise<IngestDocumentResponse> {
     if (!file) {
       throw new BadRequestException('No file provided');
@@ -57,16 +59,17 @@ export class DocumentsService {
 
     const filename = (file.originalname || '').toLowerCase();
 
-    // Strict allowlist of safe enterprise knowledge document formats
-    const allowedExtensions = ['.pdf', '.md', '.markdown', '.txt', '.csv', '.json', '.docx'];
+    // Strict allowlist of safe text/PDF enterprise knowledge document formats
+    const allowedExtensions = ['.pdf', '.md', '.markdown', '.txt', '.csv', '.json'];
     const hasAllowedExt = allowedExtensions.some((ext) => filename.endsWith(ext));
     if (!hasAllowedExt) {
       throw new BadRequestException(
-        `Unsupported or dangerous file type "${file.originalname}". Allowed formats: PDF, Markdown, TXT, CSV, JSON, DOCX.`,
+        `Unsupported or dangerous file type "${file.originalname}". Allowed formats: PDF, Markdown, TXT, CSV, JSON.`,
       );
     }
 
     const docTitle = title || file.originalname || 'Uploaded Document';
+    const resolvedDepartment = department || tenant.department || Department.ALL;
     let content: string;
 
     if (file.mimetype === 'application/pdf' || filename.endsWith('.pdf')) {
@@ -83,7 +86,7 @@ export class DocumentsService {
     return this.createDocument(tenant, {
       title: docTitle,
       source: DocumentSource.FILE_UPLOAD,
-      department,
+      department: resolvedDepartment,
       content,
       mimeType: file.mimetype,
     });
@@ -102,6 +105,15 @@ export class DocumentsService {
       throw new ForbiddenException(
         'Non-admin members cannot ingest documents targeting another department or company-wide scope.',
       );
+    }
+
+    if (this.billingService) {
+      const quotaCheck = await this.billingService.checkDocumentQuota(tenant);
+      if (!quotaCheck.allowed) {
+        throw new ForbiddenException(
+          quotaCheck.reason || 'Document storage quota exceeded for your current subscription tier.',
+        );
+      }
     }
 
     const dept = dto.department || memberDept;

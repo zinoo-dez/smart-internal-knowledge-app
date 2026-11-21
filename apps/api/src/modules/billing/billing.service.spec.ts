@@ -99,4 +99,44 @@ describe('BillingService', () => {
       }
     }
   });
+
+  it('should compute billing period boundaries strictly in UTC', async () => {
+    const usage = await service.getTenantUsage(tenant);
+    expect(usage.currentPeriodStart).toMatch(/^\d{4}-\d{2}-01T00:00:00\.000Z$/);
+    expect(usage.currentPeriodEnd).toMatch(/^\d{4}-\d{2}-\d{2}T23:59:59\.999Z$/);
+  });
+
+  it('should enforce document storage quota via checkDocumentQuota', async () => {
+    service.setTenantTier(tenant.organizationId, SubscriptionTier.FREE);
+    mockPrisma.client.document.count.mockResolvedValueOnce(10); // FREE maxDocuments = 10
+
+    const check = await service.checkDocumentQuota(tenant);
+    expect(check.allowed).toBe(false);
+    expect(check.reason).toContain('Document storage quota exceeded');
+  });
+
+  it('should fail closed on upgradeSubscription in strict production when DB update fails', async () => {
+    const origEnv = process.env.NODE_ENV;
+    const origDemo = process.env.DEMO_AUTH_ENABLED;
+    process.env.NODE_ENV = 'production';
+    process.env.DEMO_AUTH_ENABLED = 'false';
+
+    mockPrisma.client.organization = {
+      update: vi.fn().mockRejectedValueOnce(new Error('DB write failed')),
+    };
+
+    try {
+      await expect(
+        service.upgradeSubscription(tenant, SubscriptionTier.ENTERPRISE),
+      ).rejects.toThrow(ServiceUnavailableException);
+      expect(service.getTenantTier(tenant.organizationId)).toBe(SubscriptionTier.PRO);
+    } finally {
+      process.env.NODE_ENV = origEnv;
+      if (origDemo === undefined) {
+        delete process.env.DEMO_AUTH_ENABLED;
+      } else {
+        process.env.DEMO_AUTH_ENABLED = origDemo;
+      }
+    }
+  });
 });

@@ -272,6 +272,8 @@ export default function ChatPage() {
         throw new Error(`Chat stream rejected with HTTP ${response.status}`);
       }
 
+      markOfflineDemoMode(false);
+
       if (!response.body) {
         throw new Error('ReadableStream not supported.');
       }

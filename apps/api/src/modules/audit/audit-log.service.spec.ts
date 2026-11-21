@@ -174,5 +174,24 @@ describe('AuditLogService', () => {
       expect(csv).toContain("\"'+123456789");
       expect(csv).toContain("\"'@CEO");
     });
+
+    it('should return org-wide summary counts via groupBy when available', async () => {
+      mockPrisma.client.auditLog.count.mockResolvedValueOnce(50);
+      mockPrisma.client.auditLog.findMany.mockResolvedValueOnce([]);
+      mockPrisma.client.auditLog.groupBy = vi.fn().mockResolvedValueOnce([
+        { action: AuditAction.PII_FLAGGED, _count: { _all: 7 } },
+        { action: AuditAction.DOCUMENT_INGESTED, _count: { _all: 12 } },
+        { action: AuditAction.DOCUMENT_DELETED, _count: { _all: 3 } },
+        { action: AuditAction.KNOWLEDGE_GAP_RESOLVED, _count: { _all: 4 } },
+        { action: AuditAction.KNOWLEDGE_GAP_ASSIGNED, _count: { _all: 2 } },
+      ]);
+
+      const result = await service.getAuditLogs(tenant, { page: 1, limit: 25 });
+      expect(result.summary).toEqual({
+        piiRedactions: 7,
+        documentOperations: 15,
+        governanceActions: 6,
+      });
+    });
   });
 });

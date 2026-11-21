@@ -6,6 +6,7 @@ import { IngestionProcessor } from './workers/ingestion.processor';
 import { IngestionQueueService } from './workers/ingestion-queue.service';
 import { AuthModule } from '../auth/auth.module';
 import { AuditModule } from '../audit/audit.module';
+import { BillingModule } from '../billing/billing.module';
 import { ChatModule } from '../chat/chat.module';
 import { SearchModule } from '../search/search.module';
 import { ConnectorsController } from './connectors/connectors.controller';
@@ -21,6 +22,7 @@ import { DataSanitizerService } from './services/data-sanitizer.service';
   imports: [
     AuthModule,
     AuditModule,
+    BillingModule,
     forwardRef(() => ChatModule),
     forwardRef(() => SearchModule),
   ],
