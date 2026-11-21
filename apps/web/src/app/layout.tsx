@@ -1,15 +1,7 @@
 import type { Metadata, Viewport } from 'next';
-import { ClerkProvider } from '@clerk/nextjs';
 import './globals.css';
-import { AppShell } from '@/components/layout/app-shell';
-import { ClerkAuthBridge } from '@/components/auth/clerk-auth-bridge';
 import { LanguageProvider } from '@/context/language-context';
-
-const clerkPublishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
-const isClerkEnabled =
-  Boolean(clerkPublishableKey) &&
-  !clerkPublishableKey?.includes('...') &&
-  (clerkPublishableKey?.startsWith('pk_live_') || clerkPublishableKey?.startsWith('pk_test_'));
+import { getServerLanguage } from '@/i18n/server';
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -20,17 +12,36 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'Smart Internal Knowledge Assistant',
-  description: 'Multi-tenant enterprise documentation & RAG assistant with verifiable citations',
+  title: {
+    default: 'VeriKnow — Citation-Verified Knowledge Assistant',
+    template: '%s · VeriKnow',
+  },
+  description:
+    'Multi-tenant enterprise documentation & RAG assistant with strict source grounding, hybrid search, and verifiable citations.',
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: '16x16 32x32 48x48' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
+    apple: [{ url: '/apple-icon.png', sizes: '180x180' }],
+  },
+  openGraph: {
+    title: 'VeriKnow — Citation-Verified Knowledge Assistant',
+    description:
+      'Multi-tenant internal documentation & Slack/Notion/Drive assistant with clickable citations and strict tenant isolation.',
+    type: 'website',
+  },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const initialLang = await getServerLanguage();
+
   return (
-    <html lang="en">
+    <html lang={initialLang}>
       <body className="antialiased">
         <a
           href="#main-content"
@@ -38,15 +49,8 @@ export default function RootLayout({
         >
           Skip to main content
         </a>
-        <LanguageProvider>
-          {isClerkEnabled ? (
-            <ClerkProvider publishableKey={clerkPublishableKey}>
-              <ClerkAuthBridge />
-              <AppShell>{children}</AppShell>
-            </ClerkProvider>
-          ) : (
-            <AppShell>{children}</AppShell>
-          )}
+        <LanguageProvider initialLanguage={initialLang}>
+          {children}
         </LanguageProvider>
       </body>
     </html>

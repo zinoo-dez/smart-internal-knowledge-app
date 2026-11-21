@@ -148,7 +148,7 @@ export function ChatOmnibox({
     <div ref={containerRef} className="relative w-full">
       <form
         role="search"
-        aria-label="Internal Knowledge Search"
+        aria-label="VeriKnow Search"
         onSubmit={(e) => {
           e.preventDefault();
           setIsDropdownOpen(false);

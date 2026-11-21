@@ -1,19 +1,27 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Smart Internal Knowledge Assistant - End-to-End User Journeys', () => {
+test.describe('VeriKnow - End-to-End User Journeys', () => {
   test('1. Marketing Landing Page: renders hero, bilingual toggle, and CTA', async ({ page }) => {
     await page.goto('/');
 
-    await expect(page).toHaveTitle(/Smart Internal Knowledge Assistant/i);
+    await expect(page).toHaveTitle(/VeriKnow/i);
     const heroHeading = page.locator('h1');
     await expect(heroHeading).toBeVisible();
 
     const launchChatBtn = page.getByRole('link', {
-      name: /open assistant|စတင်အသုံးပြုရန်|get started/i,
+      name: /open assistant|စတင်အသုံးပြုရန်|launch ai assistant|get started/i,
     });
     if ((await launchChatBtn.count()) > 0) {
       await expect(launchChatBtn.first()).toBeVisible();
     }
+
+    // Language toggle switches between English and Myanmar
+    const myBtn = page.getByRole('button', { name: /မြန်မာ|myanmar/i }).first();
+    await myBtn.click();
+    await expect(myBtn).toHaveAttribute('aria-pressed', 'true');
+    const enBtn = page.getByRole('button', { name: /english|en/i }).first();
+    await enBtn.click();
+    await expect(enBtn).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('2. Conversational Assistant (/chat): submits inquiry, displays grounded output & opens citation drawer', async ({
@@ -60,16 +68,9 @@ test.describe('Smart Internal Knowledge Assistant - End-to-End User Journeys', (
     await omniboxInput.fill('AWS credentials & security handbook');
     await omniboxInput.press('Enter');
     const omniboxBottom = await page
-      .locator('form[aria-label="Internal Knowledge Search"]')
+      .locator('form[aria-label="VeriKnow Search"]')
       .evaluate((el) => el.getBoundingClientRect().bottom);
     expect(omniboxBottom).toBeGreaterThan(750);
-
-    // Language toggle switches to Burmese cleanly
-    const myBtn = page.getByRole('button', { name: /မြန်မာ|myanmar/i }).first();
-    if ((await myBtn.count()) > 0) {
-      await myBtn.click();
-      await expect(myBtn).toHaveAttribute('aria-pressed', 'true');
-    }
   });
 
   test('4. Admin Documents Hub (/admin/documents): renders document table and connector controls', async ({
@@ -93,5 +94,43 @@ test.describe('Smart Internal Knowledge Assistant - End-to-End User Journeys', (
 
     const heading = page.locator('h1, h2').first();
     await expect(heading).toBeVisible();
+  });
+
+  test('6. Landing Page SSR & Copy Polish: renders without blocking spinner and includes use cases & Enterprise quota', async ({
+    page,
+  }) => {
+    await page.goto('/');
+
+    // Verify blocking workspace spinner is NOT present
+    await expect(page.getByText('Loading workspace...')).toHaveCount(0);
+
+    // Verify Enterprise Use Cases section rendered
+    await expect(page.getByText('Engineering & DevOps Onboarding')).toBeVisible();
+    await expect(page.getByText('Bilingual HR & Policy Search (EN / MM)')).toBeVisible();
+    await expect(page.getByText('Security & Compliance Readiness')).toBeVisible();
+
+    // Verify Enterprise Pricing tier copy
+    await expect(page.getByText(/10,000 queries \/ month \(Fair-use\)/i).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /contact sales/i })).toBeVisible();
+  });
+
+  test('7. Dedicated Legal Pages: /legal/privacy, /legal/terms, /legal/cookies return 200 and render', async ({
+    page,
+  }) => {
+    // 1. Privacy Policy
+    const privacyRes = await page.goto('/legal/privacy');
+    expect(privacyRes?.status()).toBe(200);
+    await expect(page.locator('h1')).toContainText(/Privacy/i);
+    await expect(page.getByText(/Zero Model Training/i).first()).toBeVisible();
+
+    // 2. Terms of Service
+    const termsRes = await page.goto('/legal/terms');
+    expect(termsRes?.status()).toBe(200);
+    await expect(page.locator('h1')).toContainText(/Terms/i);
+
+    // 3. Cookies Policy
+    const cookiesRes = await page.goto('/legal/cookies');
+    expect(cookiesRes?.status()).toBe(200);
+    await expect(page.locator('h1')).toContainText(/Cookies/i);
   });
 });

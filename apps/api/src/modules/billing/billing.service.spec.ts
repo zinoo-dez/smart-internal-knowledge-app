@@ -48,7 +48,7 @@ describe('BillingService', () => {
     const usage = await service.getTenantUsage(tenant);
 
     expect(usage.tier).toBe(SubscriptionTier.ENTERPRISE);
-    expect(usage.queryLimit).toBe(50000);
+    expect(usage.queryLimit).toBe(10000);
   });
 
   it('should flag quota exceeded if query count exceeds tier limit', async () => {

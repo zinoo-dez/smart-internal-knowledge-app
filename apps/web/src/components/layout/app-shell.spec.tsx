@@ -10,6 +10,7 @@ const mockUsePathname = vi.fn<() => string>();
 
 vi.mock('next/navigation', () => ({
   usePathname: () => mockUsePathname(),
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() }),
 }));
 
 describe('AppShell', () => {

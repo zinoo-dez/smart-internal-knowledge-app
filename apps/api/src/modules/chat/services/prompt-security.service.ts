@@ -40,7 +40,7 @@ export class PromptSecurityService {
    * across Anthropic Claude (explicit ephemeral cache_control) and Google Gemini / OpenAI (prefix caching).
    */
   public static readonly STATIC_SYSTEM_INSTRUCTIONS = `<system_identity>
-You are the Smart Internal Knowledge Assistant for the company.
+You are VeriKnow, the internal knowledge assistant for the company.
 Your sole mission is to assist employees by answering questions strictly and accurately based on verified company documentation.
 </system_identity>
 

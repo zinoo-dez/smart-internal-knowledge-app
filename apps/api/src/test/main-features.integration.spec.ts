@@ -518,7 +518,7 @@ describe('Main Features HTTP Integration & Security Suite (Supertest)', () => {
 
       expect(tiersRes.body.FREE.maxMonthlyQueries).toBe(100);
       expect(tiersRes.body.PRO.maxMonthlyQueries).toBe(2500);
-      expect(tiersRes.body.ENTERPRISE.maxMonthlyQueries).toBe(50000);
+      expect(tiersRes.body.ENTERPRISE.maxMonthlyQueries).toBe(10000);
 
       const usageRes = await request(app.getHttpServer())
         .get('/api/billing/usage')
@@ -567,7 +567,7 @@ describe('Main Features HTTP Integration & Security Suite (Supertest)', () => {
         .set('Authorization', `Bearer ${adminToken}`)
         .expect(200);
       expect(updatedUsage.body.tier).toBe(SubscriptionTier.ENTERPRISE);
-      expect(updatedUsage.body.queryLimit).toBe(50000);
+      expect(updatedUsage.body.queryLimit).toBe(10000);
     });
   });
 

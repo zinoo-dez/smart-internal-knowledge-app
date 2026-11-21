@@ -75,9 +75,9 @@ export const DOCS_DATA: Record<Language, DocsBundle> = {
         },
         {
           icon: 'ShieldCheck',
-          title: '100% Trustworthy & Verified',
+          title: 'Citation-Verified & Strictly Grounded',
           description:
-            'Never makes things up. Every single answer cites the official handbook or document with clickable proof [1].',
+            'Every single answer cites the official handbook or document with clickable proof [1].',
         },
         {
           icon: 'Languages',
@@ -173,7 +173,7 @@ export const DOCS_DATA: Record<Language, DocsBundle> = {
         {
           title: '1. Permitted Business Use',
           content: [
-            'The Smart Internal Knowledge Assistant is provided exclusively for authorized employees, contractors, and partners of the organization.',
+            'The VeriKnow Assistant is provided exclusively for authorized employees, contractors, and partners of the organization.',
             'Access is granted solely for internal business workflows, including policy lookups, engineering onboarding, and workplace information retrieval.',
           ],
         },
@@ -219,7 +219,7 @@ export const DOCS_DATA: Record<Language, DocsBundle> = {
           ],
         },
         {
-          title: '3. Enterprise AI Providers & Zero-Retention Guarantee',
+          title: '3. Enterprise AI Providers & Zero Model Training Commitment',
           content: [
             'The platform uses Google Gemini, Anthropic Claude, and OpenAI via secure enterprise endpoints.',
             'Corporate queries and documentation are NEVER used to train, fine-tune, or improve public foundational AI models.',
@@ -246,9 +246,15 @@ export const DOCS_DATA: Record<Language, DocsBundle> = {
           duration: 'Session duration',
         },
         {
-          key: 'knowledge_app_lang',
+          key: 'veriknow_lang',
+          type: 'Preferences Cookie',
+          purpose: 'Stores your preferred interface language (en for English, my for Myanmar) for server-side rendering.',
+          duration: '1 year',
+        },
+        {
+          key: 'knowledge_assistant_lang',
           type: 'LocalStorage',
-          purpose: 'Stores your preferred interface language (en for English, my for Myanmar).',
+          purpose: 'Legacy fallback key for your preferred interface language.',
           duration: 'Persistent until cleared',
         },
         {
@@ -274,9 +280,9 @@ export const DOCS_DATA: Record<Language, DocsBundle> = {
         },
         {
           icon: 'ShieldCheck',
-          title: '၁၀၀% တိကျခိုင်မာခြင်း',
+          title: 'ခိုင်လုံသော အကိုးအကားဖြင့် စိစစ်ထားခြင်း',
           description:
-            'ထင်ကြေးဖြင့် ဖြေကြားခြင်း မရှိပါ။ အဖြေတိုင်းတွင် တရားဝင် ကုမ္ပဏီစာရွက်စာတမ်း မူရင်းကိုးကားချက် [1] ပါဝင်ပါသည်။',
+            'အဖြေတိုင်းတွင် တရားဝင် ကုမ္ပဏီစာရွက်စာတမ်း မူရင်းကိုးကားချက် [1] ပါဝင်ပါသည်။',
         },
         {
           icon: 'Languages',

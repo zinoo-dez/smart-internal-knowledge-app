@@ -298,13 +298,22 @@ export default function DocsPage() {
           </div>
 
           <div className="bg-white border border-slate-200/80 rounded-xl p-6 shadow-sm space-y-6">
-            <div className="border-b border-slate-100 pb-4">
-              <h2 className="text-lg font-bold text-slate-900">{currentDocs.terms.title}</h2>
-              <p className="text-xs text-slate-500 mt-1">
-                {language === 'my'
-                  ? 'နောက်ဆုံး အတည်ပြုသည့်နေ့: ၂၀၂၆ ခုနှစ်၊ နိုဝင်ဘာလ ၁၈ ရက်'
-                  : 'Effective Date: November 18, 2026 | Scope: Enterprise Internal Deployment'}
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">{currentDocs.terms.title}</h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  {language === 'my'
+                    ? 'နောက်ဆုံး အတည်ပြုသည့်နေ့: ၂၀၂၆ ခုနှစ်၊ နိုဝင်ဘာလ ၁၈ ရက်'
+                    : 'Effective Date: November 18, 2026 | Scope: Enterprise Internal Deployment'}
+                </p>
+              </div>
+              <Link
+                href="/legal/terms"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline shrink-0"
+              >
+                <span>{language === 'my' ? 'သီးသန့် စာမျက်နှာ ကြည့်မည်' : 'Open Dedicated Page'}</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
             </div>
 
             <div className="space-y-6">
@@ -350,13 +359,22 @@ export default function DocsPage() {
           </div>
 
           <div className="bg-white border border-slate-200/80 rounded-xl p-6 shadow-sm space-y-6">
-            <div className="border-b border-slate-100 pb-4">
-              <h2 className="text-lg font-bold text-slate-900">{currentDocs.privacy.title}</h2>
-              <p className="text-xs text-slate-500 mt-1">
-                {language === 'my'
-                  ? 'ဒေတာသီးသန့်ခွဲခြားမှု: Multi-Tenant Architecture (Clerk Auth + PostgreSQL pgvector)'
-                  : 'Data Partitioning: Multi-Tenant Organization Isolation (Clerk Auth + PostgreSQL pgvector)'}
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">{currentDocs.privacy.title}</h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  {language === 'my'
+                    ? 'ဒေတာသီးသန့်ခွဲခြားမှု: Multi-Tenant Architecture (Clerk Auth + PostgreSQL pgvector)'
+                    : 'Data Partitioning: Multi-Tenant Organization Isolation (Clerk Auth + PostgreSQL pgvector)'}
+                </p>
+              </div>
+              <Link
+                href="/legal/privacy"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline shrink-0"
+              >
+                <span>{language === 'my' ? 'သီးသန့် စာမျက်နှာ ကြည့်မည်' : 'Open Dedicated Page'}</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
             </div>
 
             <div className="space-y-6">
@@ -387,11 +405,20 @@ export default function DocsPage() {
           className="space-y-6 outline-none"
         >
           <div className="bg-white border border-slate-200/80 rounded-xl p-6 shadow-sm space-y-4">
-            <div>
-              <h2 className="text-lg font-bold text-slate-900">{currentDocs.cookies.title}</h2>
-              <p className="text-xs text-slate-600 mt-1 leading-relaxed">
-                {currentDocs.cookies.description}
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">{currentDocs.cookies.title}</h2>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  {currentDocs.cookies.description}
+                </p>
+              </div>
+              <Link
+                href="/legal/cookies"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline shrink-0"
+              >
+                <span>{language === 'my' ? 'သီးသန့် စာမျက်နှာ ကြည့်မည်' : 'Open Dedicated Page'}</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
             </div>
 
             <div

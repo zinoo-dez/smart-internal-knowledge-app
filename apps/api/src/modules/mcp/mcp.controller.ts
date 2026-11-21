@@ -8,6 +8,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ExecuteMcpToolResponse,
   McpServerSummary,
@@ -84,6 +85,7 @@ export class McpController {
     return this.mcpService.deleteServer(tenant, serverId);
   }
 
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
   @Post('execute')
   @Roles(UserRole.ADMIN, UserRole.MEMBER)
   async executeTool(

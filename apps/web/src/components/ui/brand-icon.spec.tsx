@@ -40,8 +40,8 @@ describe('BrandIcon', () => {
   });
 
   it('exposes accessible role and title when title prop is provided', () => {
-    render(<BrandIcon title="Smart Internal Knowledge Assistant" />);
-    const img = screen.getByRole('img', { name: 'Smart Internal Knowledge Assistant' });
+    render(<BrandIcon title="VeriKnow" />);
+    const img = screen.getByRole('img', { name: 'VeriKnow' });
     expect(img).toBeInTheDocument();
     expect(img).not.toHaveAttribute('aria-hidden');
   });
